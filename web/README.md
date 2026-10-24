@@ -1,50 +1,29 @@
 # web
 
-This template should help get you started developing with Vue 3 in Vite.
+Knot 的公开只读站（Vue 3 + Vite + TypeScript）。规格见仓库根目录的 `docs/WEB.md`。
 
-## Recommended IDE Setup
+## 环境
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+- Node.js `^22.18.0 || >=24.12.0`
+- 包管理器：**pnpm**（不使用 npm / yarn；没有 pnpm 时先 `corepack enable`）
 
-## Recommended Browser Setup
-
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
-
-## Customize configuration
-
-See [Vite Configuration Reference](https://vite.dev/config/).
-
-## Project Setup
+## 常用命令
 
 ```sh
-pnpm install
+pnpm install         # 首次安装依赖
+pnpm dev             # 开发服务器；/api 代理到 127.0.0.1:8080
+pnpm build           # 类型检查 + 生产构建到 web/dist
+pnpm type-check      # 仅类型检查（vue-tsc）
+pnpm test:unit       # Vitest（默认 watch）
+pnpm test:unit -- --run      # 单次运行（提交前）
+pnpm lint            # oxlint + eslint（带 --fix，会改文件）
+pnpm format          # Prettier 格式化 src/
 ```
 
-### Compile and Hot-Reload for Development
+## 约定
 
-```sh
-pnpm dev
-```
-
-### Compile and Minify for Production
-
-```sh
-pnpm build
-```
-
-### Run Unit Tests with [Vitest](https://vitest.dev/)
-
-```sh
-pnpm test:unit
-```
-
-### Lint with [ESLint](https://eslint.org/)
-
-```sh
-pnpm lint
-```
+- 使用 TypeScript；类型定义放在 `src/types/`，与 `docs/API.md` 的 DTO 字段保持一致。
+- 路径别名 `@` → `src`。
+- 格式：无分号、单引号、行宽 100（见 `.prettierrc.json`）。
+- 不引入 Pinia / JSX / E2E。
+- `pnpm-lock.yaml` 必须提交；不要生成 `package-lock.json`。
