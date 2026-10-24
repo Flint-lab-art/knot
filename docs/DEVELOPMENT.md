@@ -27,7 +27,7 @@
 ### 外部
 
 - Go >= 1.23
-- Node.js >= 20（Vue 构建）
+- Node.js `^22.18.0 || >=24.12.0`（Vue 构建，见 `web/package.json` 的 `engines`）
 - PostgreSQL 16（含 `pg_trgm`，二期加 `pgvector`）
 - Caddy（生产部署）
 
@@ -36,21 +36,22 @@
 | 脚本 | 作用 |
 |---|---|
 | `scripts/dev-setup.sh` | 检查 Go 版本、`go mod init`、拉运行时依赖、装构建工具、`go mod tidy` |
-| `scripts/web-build.sh` | 校验 node/npm、`npm ci`（无 lock 时 fallback `npm install`，CI 下禁止 fallback）、`npm run build`、校验 `dist/index.html` |
+| `scripts/web-build.sh` | 校验 node/pnpm、`pnpm install --frozen-lockfile`（无 lock 时 fallback `pnpm install`，CI 下禁止 fallback）、`pnpm run build`、校验 `dist/index.html` |
 
 ## Makefile 目标
 
 | 目标 | 作用 |
 |---|---|
-| `setup` | 调 `dev-setup.sh` |
+| `setup` | 调 `dev-setup.sh`，末尾执行 `make hooks` 启用 git hooks |
+| `hooks` | `core.hooksPath=.githooks`，启用 pre-commit（`make check`） |
 | `tools` | 只装 sqlc/goose/golangci-lint |
 | `tidy` | `go mod tidy` |
 | `sqlc` | `sqlc generate` |
 | `run-server` | `go run ./cmd/knot-server` |
 | `run` | `go run ./cmd/knot tui` |
-| `web-dev` | `cd web && npm run dev` |
-| `test` | `go test -race ./...` |
-| `test-short` | `go test -short ./...` |
+| `web-dev` | `cd web && pnpm run dev` |
+| `test` | `go test -race -count=1 ./...` |
+| `test-short` | `go test -short -count=1 ./...` |
 | `cover` | 覆盖率报告 |
 | `vet` | `go vet ./...` |
 | `lint` | `golangci-lint run ./...` |
@@ -85,6 +86,8 @@
 ```bash
 make check
 ```
+
+`make hooks` 会把 `core.hooksPath` 指到 `.githooks/`，pre-commit 自动执行 `make check`；涉及 `web/src` 改动时还会跑一次 Vitest。`.git/hooks` 不入库，新克隆后必须重跑 `make hooks`（`make setup` 已含）。
 
 ## Git 忽略
 

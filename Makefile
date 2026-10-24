@@ -34,6 +34,7 @@ help: ## 显示所有目标
 setup: ## 安装 Go 依赖与构建工具（调 scripts/dev-setup.sh）
 	@if [ ! -f scripts/dev-setup.sh ]; then echo "✗ 缺少 scripts/dev-setup.sh"; exit 1; fi
 	@MODULE=$(MODULE) GOPROXY=$(GOPROXY) GOSUMDB=$(GOSUMDB) bash scripts/dev-setup.sh
+	@$(MAKE) hooks
 
 .PHONY: tools
 tools: ## 仅安装构建工具（sqlc/goose/golangci-lint）
@@ -44,6 +45,12 @@ tools: ## 仅安装构建工具（sqlc/goose/golangci-lint）
 .PHONY: tidy
 tidy: ## go mod tidy
 	$(GO) mod tidy
+
+.PHONY: hooks
+hooks: ## 启用仓库内 git hooks（core.hooksPath=.githooks）
+	git config core.hooksPath .githooks
+	@chmod +x .githooks/* 2>/dev/null || true
+	@echo "✓ core.hooksPath=$$(git config core.hooksPath)（pre-commit 会执行 make check）"
 
 .PHONY: sqlc
 sqlc: ## 生成 sqlc 代码
@@ -61,7 +68,7 @@ run: ## 启动 TUI
 
 .PHONY: web-dev
 web-dev: ## 启动 Vite 开发服务器（代理到本地 Go）
-	cd web && npm run dev
+	cd web && pnpm run dev
 
 # ---------- 测试 ----------
 .PHONY: test

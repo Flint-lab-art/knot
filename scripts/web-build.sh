@@ -10,31 +10,31 @@ if [ ! -d "${WEB_DIR}" ]; then
   exit 1
 fi
 if ! command -v node >/dev/null 2>&1; then
-  echo "✗ 未找到 node，请先安装 Node.js >= 20"
+  echo "✗ 未找到 node，请先安装 Node.js ^22.18.0 || >=24.12.0"
   exit 1
 fi
-if ! command -v npm >/dev/null 2>&1; then
-  echo "✗ 未找到 npm"
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "✗ 未找到 pnpm，请先执行: corepack enable"
   exit 1
 fi
 
-echo "→ Node $(node -v) / npm $(npm -v)"
+echo "→ Node $(node -v) / pnpm $(pnpm -v)"
 cd "${WEB_DIR}"
 
-if [ -f package-lock.json ]; then
-  echo "→ npm ci"
-  npm ci
+if [ -f pnpm-lock.yaml ]; then
+  echo "→ pnpm install --frozen-lockfile"
+  pnpm install --frozen-lockfile
 else
   if [ "${CI:-}" = "true" ]; then
-    echo "✗ CI 环境下缺少 package-lock.json"
+    echo "✗ CI 环境下缺少 pnpm-lock.yaml"
     exit 1
   fi
-  echo "⚠ 缺少 package-lock.json，改用 npm install（建议之后提交 lock 文件）"
-  npm install
+  echo "⚠ 缺少 pnpm-lock.yaml，改用 pnpm install（建议之后提交 lock 文件）"
+  pnpm install
 fi
 
-echo "→ npm run build"
-npm run build
+echo "→ pnpm run build"
+pnpm run build
 
 if [ ! -f dist/index.html ]; then
   echo "✗ 构建完成但未找到 dist/index.html，检查 vite build 输出目录"

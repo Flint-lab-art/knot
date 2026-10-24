@@ -1,5 +1,12 @@
 # AGENTS.md
 
+## 任务流程（每次开工先做）
+
+1. **开始任务前先读 `TODO.md`**，确认当前阶段与要做的条目，不要跳过阶段顺序。
+2. **每完成一项任务，立刻把 `TODO.md` 对应复选框改成 `[x]`**；同一提交内完成代码 + TODO 勾选，不要事后补勾。
+3. 任务发现与文档冲突、或产生新事项时，一并更新 `TODO.md`（新增/调整条目）而不是只记在脑子里。
+4. `TODO.md` 尚未被 git 跟踪；开始使用本流程时先 `git add TODO.md` 纳入版本管理。
+
 ## 先读
 
 - **`docs/` 是本项目的设计与契约来源**，写代码前按任务读对应文件：`ARCHITECTURE.md`（模块划分与依赖方向）、`DATA_MODEL.md`（PG/SQLite 表结构）、`API.md`（接口、错误码、限流、CLI 映射）、`CLIENT.md`（CLI/TUI 命令与配置）、`SYNC_CACHE.md`（对账与缓存）、`WEB.md`（前端规格，最详细）、`SECURITY.md`、`DEPLOYMENT.md`、`ROADMAP.md`（MVP/二期边界）、`DEVELOPMENT.md`（依赖与测试约定）。
@@ -7,11 +14,12 @@
 
 ## 仓库现状
 
-- 骨架阶段：Go 代码除 `web/` 外全部是 0 字节占位文件（`cmd/*`、`internal/*`），现在 `go build/vet/test ./...` 会报 `expected 'package', found 'EOF'`；先写实现再验证。
+- 骨架阶段：Go 代码除 `web/` 外全部是 0 字节占位文件（`cmd/*`、`internal/*`），现在 `go build/vet/test ./...` 会报 `expected 'package', found 'EOF'`。**阶段 1 的目标就是让 `go build ./...` 首次通过**，届时 `make check` 与 pre-commit 才真正可用。
 - 根模块名是裸路径 `knot`，导入写成 `knot/internal/...`。
 - 在没有有效 `.go` 源码时 `go mod tidy` 会删掉全部 `require`（`make setup` 末步就会执行 tidy），这就是当前 `go.mod` 无依赖、`go.sum` 为空的原因。源码可编译前不要用 tidy 管理依赖；需要拉依赖时直接 `go get`。
-- 没有 CI/pre-commit；`make check`（vet → lint → test）是唯一检查入口。也没有 `sqlc.yaml`，`make sqlc` 目前不可用。
-- `web/` 仍是 Vue 默认模板（JS），与 `WEB.md` 的规格（TypeScript、`src/api`、`src/composables`、markdown-it + DOMPurify、Vite proxy）尚未对齐——改前端前先读 `WEB.md`，按它落地而不是沿用模板。
+- 没有 CI；`make check`（vet → lint → test）与 `.githooks/pre-commit` 是唯一检查入口。也没有 `sqlc.yaml`，`make sqlc` 目前不可用。
+- `web/` 已是 Vue 3 + **TypeScript** 工程（`vite.config.ts`、`vitest.config.ts`、`tsconfig.*.json`），但页面仍是默认模板；与 `WEB.md` 的规格（`src/api`、`src/composables`、markdown-it + DOMPurify）尚未对齐——改前端前先读 `WEB.md`，按它落地而不是沿用模板。
+- **前端语言是 TypeScript**（Vue 3 + Vite + `vue-tsc`）。`pnpm build` 会先跑 `type-check` 再构建；类型定义放 `src/types/`，与 `docs/API.md` 的 DTO 字段对齐。
 
 ## 架构约束（来自 docs/ARCHITECTURE.md）
 
@@ -24,6 +32,38 @@
 - 所有写操作走 HTTP；`visibility` 在服务端查询层强制过滤，标签承载可见性是明确禁止的设计。
 - SQLite 用 `modernc.org/sqlite`（纯 Go），构建统一 `CGO_ENABLED=0`；本地库必须 `PRAGMA foreign_keys = ON`。
 - 迁移用 goose 并 `//go:embed`：PG 在 `migrations/pg`（`knot-server migrate` 执行），SQLite 在 `migrations/sqlite`（CLI 启动时执行）；迁移只加不删。
+
+## Git 规范（强制）
+
+- **禁止任何写入 `main` 的操作**：不要 `checkout/switch main`、不要在 `main` 上 `commit`、不要 `merge/rebase/reset` 到 `main`、不要 `push origin main`、不要 `push --force` 覆盖 `main`。查看用 `git log main`、`git diff main` 这类只读命令没问题。
+- 工作分支是 `dev`（跟踪 `origin/dev`）。单人开发，**直接在 `dev` 上提交，不建 `feat/*` 功能分支**；`debv` 是本地遗留分支，不要在其上开发。
+- 开新工作前 `git status` 确认干净并 `git pull --rebase origin dev`；保持线性历史，不制造无意义 merge commit。高风险重构或需要“可整体丢弃”的实验可以临时开本地分支，合并后删掉。
+- 提交前必须通过 `make check`（vet → lint → test）+ 前端 `pnpm test:unit -- --run`；`make check` 已由 `.githooks/pre-commit` 自动执行，提交前端改动时 hook 还会额外跑 Vitest。
+- **没有 CI**：本地测试与 hook 是唯一防线，不要依赖远端兜底。本项目不打算引入 GitHub Actions。
+- hook 装在 `.githooks/` 并由 `core.hooksPath` 指向（`make hooks` 启用，`make setup` 末尾会自动调用）；`.git/hooks` 不入库，换机器必须重跑 `make hooks`。
+- **当前 Go 代码仍是占位文件，`make check` 必然失败，hook 会拦住所有提交**。在 `go build ./...` 通过（阶段 1 完成）前，只能用 `git commit --no-verify` 提交纯文档/配置改动，并在提交信息正文注明跳过了 hook。**此例外仅限阶段 1 之前**，阶段 1 完成后再用 `--no-verify` 视为违规。
+- `.gitignore` 已覆盖 `bin/`、`web/dist/`、`config.toml`、`.env`、`*.db`、`*.dump` —— **`config.toml` 与 `.env` 含 token，绝不要 `git add -f`**。
+- 提交信息用 Conventional Commits 前缀：`feat:` / `fix:` / `docs:` / `refactor:` / `test:` / `chore:` / `build:` / `ci:`。标题用祈使句、≤ 72 字，正文说明「为什么」而不是复述 diff。
+- 一个提交只做一件事：不要混入格式化噪声、无关重构、依赖升级。需格式化/生成代码（`pnpm format`、`sqlc generate`）时单独成提交。
+- `sqlc` 生成代码（`internal/store/pg/sqlcgen/`）随生成它的 SQL 改动一起提交，不要手改生成文件。
+- 不要改写已推送的历史（`--amend`、`rebase -i`、`reset --hard` 仅限**未推送**的本地提交）；`git push --force` 只能对非 `main` 分支使用，优先 `--force-with-lease`。
+- 合并回 `main` 由维护者操作，agent 只负责在 `dev` 上提交并推送 `origin dev`。
+
+## 测试要求
+
+不要求“每个功能都写单测”式的覆盖，按出错代价决定：
+
+| 优先级 | 必须测 | 位置 |
+|---|---|---|
+| 高 | 快照 diff 纯函数（删除 / 重命名 / 解绑 / 新增） | `internal/reconcile/*_test.go`，表驱动 |
+| 高 | SQLite 对账事务、级联删除、回滚 | `internal/store/sqlite`，用 `:memory:` |
+| 高 | Markdown sanitize（`<script>`、`onerror`、`javascript:`、GFM 不误伤） | `web/` Vitest |
+| 中 | `base_version` 冲突 409、公开接口 `visibility` 过滤、限流 429 | handler 测试（`httptest` + mock store） |
+| 低 | CLI 参数解析、TUI 渲染、胶水代码 | 不强制，靠手测 |
+
+- 新增/修改纯函数或数据写入逻辑必须带测试；UI 与胶水代码以手测为主。
+- 不要为凑覆盖率写只断言“调用过 mock”的测试。
+- 依赖外部服务（PG、testcontainers）的测试用 `testing.Short()` 跳过，保证 `make test-short` 可跑。
 
 ## 常用命令
 
@@ -45,10 +85,13 @@ make dist         # web-build + build-server -> bin/knot-deploy.tar.gz
 
 ## 前端（web/）
 
-- 包管理器用 npm（Makefile 与 `scripts/web-build.sh` 都调 npm；`web/README.md` 的 pnpm 是模板残留）。
-- 首次 `cd web && npm install`；`npm run dev` / `npm run build` / `npm run test:unit` / `npm run lint` / `npm run format`。
-- Vitest 默认 watch，一次性运行用 `npm run test:unit -- --run`。
-- `npm run lint` 带 `--fix`（oxlint + eslint），会直接改文件；`npm run format` 只格式化 `src/`。
+- **包管理器是 pnpm，禁止使用 npm / yarn**：不要生成 `package-lock.json`，不要运行 `npm install`。没有 pnpm 时先 `corepack enable`。
+- 首次 `cd web && pnpm install`；`pnpm dev` / `pnpm build` / `pnpm test:unit` / `pnpm lint` / `pnpm format`，单独类型检查用 `pnpm type-check`。
+- `pnpm build` = `vue-tsc --build` + `vite build`，类型错误会阻断构建；改了 `.vue`/`.ts` 后至少跑一次 `pnpm type-check`。
+- **`@vitest/eslint-plugin` 必须锁死 `1.6.27`**：`1.6.28` 要求 TypeScript >=6，而 `vue-tsc`/`@vue/tsconfig` 目前停在 TS 5.9，升级会让依赖安装报 ERESOLVE。
+- 配置文件是 `.ts`：`vite.config.ts` / `vitest.config.ts`；`vitest.config.ts` 里导入用 `./vite.config.js`（带扩展名，否则 Vite 原生 config loader 会告警）。
+- `/api` 已在 `vite.config.ts` 里代理到 `http://127.0.0.1:8080`。
+- Vitest 默认 watch，一次性运行用 `pnpm test:unit -- --run`。
+- `pnpm lint` 带 `--fix`（oxlint + eslint），会直接改文件；`pnpm format` 只格式化 `src/`。
 - 格式：Prettier 无分号、单引号、行宽 100；Node 版本要求 `^22.18.0 || >=24.12.0`。
-- 目前无 lockfile；`scripts/web-build.sh` 只在有 `package-lock.json` 时用 `npm ci`，CI 环境缺 lockfile 会直接失败——首次 `npm install` 后应提交 lockfile。
-- Vite 尚未配置 `/api` proxy（`WEB.md` 要求代理到 `127.0.0.1:8080`）。
+- `web/pnpm-lock.yaml` 必须入库；`scripts/web-build.sh` 存在 lockfile 时用 `pnpm install --frozen-lockfile`。

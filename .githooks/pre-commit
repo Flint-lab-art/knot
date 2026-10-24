@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# .githooks/pre-commit —— 提交前跑 make check（vet -> lint -> test）
+# 安装: make hooks（设置 core.hooksPath=.githooks）
+# 临时跳过: git commit --no-verify
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+echo "→ pre-commit: make check"
+if ! make check; then
+  echo
+  echo "✗ make check 未通过，提交已中止。"
+  echo "  修复后重试；确需跳过用: git commit --no-verify"
+  exit 1
+fi
+
+# 若本次提交涉及前端代码，额外跑一次 Vitest（一次性执行，不 watch）
+if git diff --cached --name-only --diff-filter=ACMR | grep -qE '^web/(src|tests?)/'; then
+  if [ -d web/node_modules ]; then
+    if ! command -v pnpm >/dev/null 2>&1; then
+      echo "✗ 未找到 pnpm，无法跑前端单测（先执行 corepack enable）"
+      exit 1
+    fi
+    echo "→ pre-commit: 前端单测"
+    if ! (cd web && pnpm test:unit -- --run); then
+      echo
+      echo "✗ 前端单测未通过，提交已中止。"
+      exit 1
+    fi
+  else
+    echo "⚠ web/node_modules 不存在，跳过前端单测（先执行 cd web && pnpm install）"
+  fi
+fi
+
+echo "✓ pre-commit 通过"

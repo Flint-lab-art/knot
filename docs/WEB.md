@@ -12,8 +12,8 @@ Vue 端仅做**只读展示**，无写入接口，只消费 `/api/public/*`。�
 
 | 项 | 选择 | 说明 |
 |---|---|---|
-| 框架 | Vue 3 + Vite | `npm create vue@latest`，选 Router + Vitest + Linter + Prettier |
-| 语言 | TypeScript | 与 Go 后端 DTO 对齐，减少字段拼错 |
+| 框架 | Vue 3 + Vite | `pnpm create vue@latest`，选 Router + Vitest + Linter + Prettier |
+| 语言 | TypeScript | 与 Go 后端 DTO 对齐，减少字段拼错；`vue-tsc` 做类型检查 |
 | 路由 | Vue Router，`createWebHistory` | 与 Caddy SPA fallback 配套 |
 | 状态 | 不引 Pinia | 只读站用模块级 `ref` / composable 足够 |
 | JSX | 不启用 | SFC + template 足够 |

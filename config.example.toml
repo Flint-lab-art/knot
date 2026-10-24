@@ -1,0 +1,59 @@
+# Knot 配置示例
+#
+# 客户端：复制到 ~/.config/knot/config.toml（遵循 XDG，os.UserConfigDir()）
+# 服务端：复制到 /opt/knot/config.toml，chmod 600，属主为运行用户
+#
+# 加载顺序：默认值 → 配置文件 → 环境变量覆盖
+#   KNOT_SERVER_URL、KNOT_TOKEN 覆盖同名字段
+#
+# 本文件不含真实 token；config.toml 已被 .gitignore 忽略，切勿提交。
+
+# ---------- 两端共用 ----------
+
+# 客户端：后端地址；服务端可忽略
+server_url = "https://knot.example.com"
+
+# 私有接口的 Bearer Token（服务端据此校验，客户端据此访问私有 API）
+# 生产环境请用长随机串，例如: openssl rand -hex 32
+token = "change-me"
+
+# ---------- 服务端 ----------
+
+# 监听地址。生产环境只监听本机，由 Caddy 反代，不直接暴露公网
+listen = "127.0.0.1:8080"
+
+# PostgreSQL 连接串（服务端唯一真值源）
+# 需要 Postgres 16，并 CREATE EXTENSION pg_trgm
+# 推荐给公开接口单独配置只读角色，见 docs/SECURITY.md
+pg_dsn = "postgres://knot:password@127.0.0.1:5432/knot?sslmode=disable"
+
+# 请求体大小上限（字节），默认 8 MiB
+# max_body_bytes = 8388608
+
+# 服务端超时（秒）
+# read_timeout = 30
+# write_timeout = 30
+# idle_timeout = 120
+
+# ---------- 客户端 ----------
+
+[editor]
+# 编辑 `knot edit` 时调用的命令，加载时做 exec.LookPath 检查
+command = "nvim"
+# args = []
+
+[cache]
+# 留空则用 os.UserCacheDir()/knot/cache.db
+# path = "/custom/path/cache.db"
+
+# ---------- 限流（服务端，可选覆盖） ----------
+# 默认值见 docs/API.md / docs/SECURITY.md：
+#   /api/public/*          10 req/s，突发 20
+#   /api/public/notes、/api/search  2 req/s，突发 5
+#   私有接口不限
+
+# [ratelimit]
+# public_per_second = 10
+# public_burst = 20
+# search_per_second = 2
+# search_burst = 5
