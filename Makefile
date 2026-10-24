@@ -40,7 +40,7 @@ setup: ## 安装 Go 依赖与构建工具（调 scripts/dev-setup.sh）
 tools: ## 仅安装构建工具（sqlc/goose/golangci-lint）
 	@GOPROXY=$(GOPROXY) $(GO) install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 	@GOPROXY=$(GOPROXY) $(GO) install github.com/pressly/goose/v3/cmd/goose@latest
-	@GOPROXY=$(GOPROXY) $(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@GOPROXY=$(GOPROXY) $(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 
 .PHONY: tidy
 tidy: ## go mod tidy

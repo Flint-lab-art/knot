@@ -13,17 +13,18 @@
 - [x] 包管理器统一为 **pnpm**（`web-build.sh`、`make web-dev`、hook、文档全部改 pnpm，删除 `package-lock.json`）
 - [x] 生成并提交 `web/pnpm-lock.yaml`
 - [x] 建 `config.example.toml`（含客户端 `server_url/token/[editor]/[cache]` 与服务端 `listen/pg_dsn`，已过 TOML 校验）
-- [ ] 提交阶段 0（Go 骨架未补完，需 `git commit --no-verify`，仅此一次）
+- [x] 提交阶段 0（Go 骨架未补完，需 `git commit --no-verify`，仅此一次）
+- [x] `make tools` 与 `scripts/dev-setup.sh` 改用 `golangci-lint/v2`（v1 无法解析 Go 1.27 导出数据）
 
 ## 阶段 1：可编译最小骨架
 
 > 目标：`go build ./...` 首次通过，`make check` 与 pre-commit 真正可用。
 
-- [ ] `internal/model/`、`internal/dto/`、`internal/config/`、`internal/cli/cmd/`、`internal/server/handler|middleware/`、`internal/store/pg/queries|sqlcgen/`、`internal/tui/views/` 各补带 `package` 声明的占位文件
-- [ ] `cmd/knot/main.go`：Cobra 根命令，支持 `--version`
-- [ ] `cmd/knot-server/main.go`：最小 HTTP 服务 + `GET /healthz`
-- [ ] `go build ./...`、`go vet ./...` 通过
-- [ ] `make check` 首次全绿（首次不需要 `--no-verify`）
+- [x] `internal/model/`、`internal/dto/`、`internal/config/`、`internal/cli/cmd/`、`internal/server/handler|middleware/`、`internal/store/pg/queries|sqlcgen/`、`internal/tui/views/` 各补带 `package` 声明的占位文件
+- [x] `cmd/knot/main.go`：Cobra 根命令，支持 `--version`
+- [x] `cmd/knot-server/main.go`：最小 HTTP 服务 + `GET /healthz`
+- [x] `go build ./...`、`go vet ./...` 通过
+- [x] `make check` 首次全绿（首次不需要 `--no-verify`）
 
 ## 阶段 2：数据层
 

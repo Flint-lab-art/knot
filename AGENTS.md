@@ -14,9 +14,9 @@
 
 ## 仓库现状
 
-- 骨架阶段：Go 代码除 `web/` 外全部是 0 字节占位文件（`cmd/*`、`internal/*`），现在 `go build/vet/test ./...` 会报 `expected 'package', found 'EOF'`。**阶段 1 的目标就是让 `go build ./...` 首次通过**，届时 `make check` 与 pre-commit 才真正可用。
+- 骨架阶段：Go 代码除 `web/` 外曾全部是 0 字节占位文件，**阶段 1 已完成**：`go build ./...` 首次通过，`make check` 与 pre-commit 可用，此后禁止再用 `--no-verify` 跳过 hook。
 - 根模块名是裸路径 `knot`，导入写成 `knot/internal/...`。
-- 在没有有效 `.go` 源码时 `go mod tidy` 会删掉全部 `require`（`make setup` 末步就会执行 tidy），这就是当前 `go.mod` 无依赖、`go.sum` 为空的原因。源码可编译前不要用 tidy 管理依赖；需要拉依赖时直接 `go get`。
+- `go.mod` 只保留实际引用的依赖（当前 `cobra`、`bubbletea`、`uuid`），其余在对应阶段 `go get`；不要在源码不引用时提前拉依赖，`go mod tidy` 会把它们删掉。
 - 没有 CI；`make check`（vet → lint → test）与 `.githooks/pre-commit` 是唯一检查入口。也没有 `sqlc.yaml`，`make sqlc` 目前不可用。
 - `web/` 已是 Vue 3 + **TypeScript** 工程（`vite.config.ts`、`vitest.config.ts`、`tsconfig.*.json`），但页面仍是默认模板；与 `WEB.md` 的规格（`src/api`、`src/composables`、markdown-it + DOMPurify）尚未对齐——改前端前先读 `WEB.md`，按它落地而不是沿用模板。
 - **前端语言是 TypeScript**（Vue 3 + Vite + `vue-tsc`）。`pnpm build` 会先跑 `type-check` 再构建；类型定义放 `src/types/`，与 `docs/API.md` 的 DTO 字段对齐。
@@ -41,7 +41,7 @@
 - 提交前必须通过 `make check`（vet → lint → test）+ 前端 `pnpm test:unit -- --run`；`make check` 已由 `.githooks/pre-commit` 自动执行，提交前端改动时 hook 还会额外跑 Vitest。
 - **没有 CI**：本地测试与 hook 是唯一防线，不要依赖远端兜底。本项目不打算引入 GitHub Actions。
 - hook 装在 `.githooks/` 并由 `core.hooksPath` 指向（`make hooks` 启用，`make setup` 末尾会自动调用）；`.git/hooks` 不入库，换机器必须重跑 `make hooks`。
-- **当前 Go 代码仍是占位文件，`make check` 必然失败，hook 会拦住所有提交**。在 `go build ./...` 通过（阶段 1 完成）前，只能用 `git commit --no-verify` 提交纯文档/配置改动，并在提交信息正文注明跳过了 hook。**此例外仅限阶段 1 之前**，阶段 1 完成后再用 `--no-verify` 视为违规。
+- 阶段 1 之前唯一允许的 `git commit --no-verify` 例外已随阶段 1 完成失效（那次提交标记为 `b43611c`）；现在 hook 必须真实通过，`--no-verify` 视为违规。
 - `.gitignore` 已覆盖 `bin/`、`web/dist/`、`config.toml`、`.env`、`*.db`、`*.dump` —— **`config.toml` 与 `.env` 含 token，绝不要 `git add -f`**。
 - 提交信息用 Conventional Commits 前缀：`feat:` / `fix:` / `docs:` / `refactor:` / `test:` / `chore:` / `build:` / `ci:`。标题用祈使句、≤ 72 字，正文说明「为什么」而不是复述 diff。
 - 一个提交只做一件事：不要混入格式化噪声、无关重构、依赖升级。需格式化/生成代码（`pnpm format`、`sqlc generate`）时单独成提交。

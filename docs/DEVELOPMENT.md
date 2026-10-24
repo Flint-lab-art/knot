@@ -22,7 +22,7 @@
 
 - `github.com/sqlc-dev/sqlc/cmd/sqlc`
 - `github.com/pressly/goose/v3/cmd/goose`
-- `github.com/golangci/golangci-lint/cmd/golangci-lint`
+- `github.com/golangci/golangci-lint/v2/cmd/golangci-lint`（v1 的 `v1.64.8` 是最后支持旧版，无法解析 Go 1.27 的导出数据，必须用 v2）
 
 ### 外部
 
