@@ -17,7 +17,7 @@
 
 ## 快速开始
 
-前置：Go >= 1.23、Node.js >= 20（仅 Web）、PostgreSQL 16（含 `pg_trgm`）。
+前置：Go >= 1.23、Node.js `^22.18.0 || >=24.12.0`（仅 Web）、PostgreSQL 16（含 `pg_trgm`）。
 
 ```bash
 # 安装 Go 依赖与构建工具

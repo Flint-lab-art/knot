@@ -83,7 +83,7 @@ knot rm <selector>
 
 ## 配置文件
 
-`~/.config/knot/config.toml`（遵循 XDG，`os.UserConfigDir()`）：
+`~/.config/knot/config.toml`（遵循 XDG，`os.UserConfigDir()`）；服务端用 `/opt/knot/config.toml`，`chmod 600`。仓库根目录的 `config.example.toml` 是两端字段的完整示例：
 
 ```toml
 server_url = "https://knot.example.com"

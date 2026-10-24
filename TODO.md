@@ -1,0 +1,126 @@
+# Knot 开发 TODO
+
+## 阶段 0：文档与配置对齐
+
+- [x] `mv internal/sync internal/reconcile`，包名 `reconcile`
+- [x] 写 `AGENTS.md`（任务流程、分支策略、提交格式、测试要求、pre-commit）
+- [x] 写 `.gitignore`
+- [x] 建 `LICENSE`（MIT）
+- [x] 加 `.githooks/pre-commit`（执行 `make check`）+ `make hooks` 目标
+- [x] 前端语言定为 **TypeScript**，`web/` 迁移到 TS（`tsconfig.*.json`、`vite.config.ts`、`vitest.config.ts`、`main.ts`、`vue-tsc`）
+- [x] `web/vite.config.ts` 加 `server.proxy`：`/api` → `127.0.0.1:8080`
+- [x] 修文档与脚本不一致：Node `^22.18.0 || >=24.12.0`（`README.md` / `DEVELOPMENT.md` / `scripts/web-build.sh`）、`make test` 补 `-count=1`
+- [x] 包管理器统一为 **pnpm**（`web-build.sh`、`make web-dev`、hook、文档全部改 pnpm，删除 `package-lock.json`）
+- [x] 生成并提交 `web/pnpm-lock.yaml`
+- [x] 建 `config.example.toml`（含客户端 `server_url/token/[editor]/[cache]` 与服务端 `listen/pg_dsn`，已过 TOML 校验）
+- [ ] 提交阶段 0（Go 骨架未补完，需 `git commit --no-verify`，仅此一次）
+
+## 阶段 1：可编译最小骨架
+
+> 目标：`go build ./...` 首次通过，`make check` 与 pre-commit 真正可用。
+
+- [ ] `internal/model/`、`internal/dto/`、`internal/config/`、`internal/cli/cmd/`、`internal/server/handler|middleware/`、`internal/store/pg/queries|sqlcgen/`、`internal/tui/views/` 各补带 `package` 声明的占位文件
+- [ ] `cmd/knot/main.go`：Cobra 根命令，支持 `--version`
+- [ ] `cmd/knot-server/main.go`：最小 HTTP 服务 + `GET /healthz`
+- [ ] `go build ./...`、`go vet ./...` 通过
+- [ ] `make check` 首次全绿（首次不需要 `--no-verify`）
+
+## 阶段 2：数据层
+
+- [ ] `migrations/pg/0001_init.sql`：`tags` / `notes`（含 `version`、`visibility`）/ `note_tags` + 索引
+- [ ] `migrations/sqlite/0001_init.sql`：`note_meta` / `tag_meta` / `note_tag_meta` / `note_content_cache` / `sync_state`
+- [ ] `sqlc.yaml` 配置，`internal/store/pg/queries/notes.sql`、`tags.sql`、`sync.sql`
+- [ ] `make sqlc` 生成代码到 `internal/store/pg/sqlcgen/`
+- [ ] `internal/store/pg/store.go`：`Migrate`、`New`、CRUD 方法（包装 sqlcgen）
+- [ ] `internal/store/sqlite/store.go`：`Migrate`、`New`、对账事务方法
+- [ ] `cmd/knot-server` 加 `migrate` 子命令，`//go:embed migrations/pg/*.sql`
+- [ ] SQLite `:memory:` 建表、级联删除、回滚测试
+- [ ] 本地 PG 跑 `knot-server migrate` 成功
+
+## 阶段 3：服务端 API
+
+- [ ] `internal/dto/*.go`：请求/响应结构体（对照 `docs/API.md`）
+- [ ] `internal/server/router.go`：chi 路由，私有 / 公开 / `healthz`
+- [ ] `middleware/auth.go`：Bearer Token，`crypto/subtle`
+- [ ] `middleware/ratelimit.go`：按 IP 令牌桶，公开 10/s，搜索 2/s
+- [ ] `handler/notes.go`：POST / PUT（`base_version`，409）/ DELETE（204）/ GET
+- [ ] `handler/tags.go`：列表、绑定、解绑、重命名
+- [ ] `handler/sync.go`：`GET /api/sync/snapshot`，不含 `raw_md`
+- [ ] `handler/public.go`：查询层强制 `visibility='public'`
+- [ ] `handler/health.go`
+- [ ] 测试：409 版本冲突、公开接口过滤、429 限流（`httptest` + mock store）
+- [ ] `curl` 手测：新建 → 改 → 查 → 删 → sync → 公开过滤 → 409 → 429
+
+## 阶段 4：客户端 HTTP + 同步对账
+
+- [ ] `internal/client/client.go`：fetch 封装、Bearer、错误码映射、429
+- [ ] `internal/client/notes.go` / `tags.go` / `sync.go`
+- [ ] `internal/reconcile/reconcile.go`：全量快照 diff 纯函数
+- [ ] `internal/reconcile/reconcile_test.go`：表驱动，覆盖删除 / 重命名 / 解绑 / 新增
+- [ ] `internal/store/sqlite` 对账事务实现
+- [ ] `go test ./internal/reconcile/` 全绿
+
+## 阶段 5：CLI
+
+- [ ] `internal/config/config.go`：TOML + 环境变量覆盖，`editor.command` 做 `LookPath`
+- [ ] `internal/cli/root.go`：Cobra 根命令
+- [ ] `new.go` / `edit.go` / `show.go` / `rm.go` / `list.go`
+- [ ] `search.go` / `tag.go` / `sync.go` / `cache.go` / `completion.go`
+- [ ] `cmd/knot/main.go` 装配
+- [ ] `edit` 流程：懒加载 → 临时文件 → 编辑器 → 归一化 hash → PUT
+- [ ] `rm` 流程：DELETE → 本地事务删三张表
+- [ ] 全链路手测：`new → list → show → edit → rm → sync`
+
+## 阶段 6：TUI
+
+- [ ] `internal/tui/app.go`：Bubble Tea 根 Model，双栏布局
+- [ ] `views/list.go` / `detail.go` / `editor.go` / `tagpanel.go`
+- [ ] `statusbar.go`：同步状态、当前标签、快捷键
+- [ ] 快捷键：`/` 搜索、`t` 标签、`s` 同步、`q` 退出
+- [ ] 窄终端（< 100 列）自动单栏
+- [ ] 手测：浏览、搜索、编辑保存、同步
+
+## 阶段 7：Vue Web（TypeScript）
+
+- [ ] `vite.config.ts` 确认 proxy（已完成，复核即可）
+- [ ] `src/types/`：与 `docs/API.md` 对齐的 DTO 类型
+- [ ] `src/api/client.ts` / `notes.ts` / `tags.ts`
+- [ ] `src/views/NoteList.vue` / `NoteDetail.vue` / `NotFound.vue`
+- [ ] `src/components/NoteCard.vue` / `TagBar.vue` / `MarkdownView.vue` / `Pagination.vue`
+- [ ] 装 `markdown-it` + `@types/markdown-it` + `dompurify` + `@fontsource-variable/inter` + `noto-sans-cjk-sc`
+- [ ] CSS 变量：颜色、字号、间距、圆角、卡片参数（按 `WEB.md`）
+- [ ] 三态：加载 / 空 / 错误；429 提示
+- [ ] Vitest：Markdown sanitize 四条用例（`<script>`、`onerror`、`javascript:`、GFM 不误伤）
+- [ ] `make web-dev` 手测列表、阅读、标签筛选、429
+- [ ] `make web-build` 产出 dist
+
+## 阶段 8：Neovim 插件
+
+- [ ] `nvim/` 目录：lua 插件，调 `knot` CLI
+- [ ] 编辑入口
+- [ ] 搜索弹窗
+- [ ] 标签面板
+- [ ] 关联笔记面板
+- [ ] 手测
+
+## 阶段 9：部署联调
+
+- [ ] 本机 docker PG + Caddy 走一遍完整部署流程
+- [ ] 验证迁移、`/api` 反代、SPA fallback、`/healthz`
+- [ ] 上服务器：systemd + Caddy
+- [ ] 公网 HTTPS 验证
+- [ ] 公开笔记可见，私密笔记 404
+- [ ] 限流生效（429）
+- [ ] `pg_dump` 定时备份
+- [ ] `knot-server.prev` 回滚演练
+- [ ] 提交部署脚本 / 文档补充
+
+## 二期（不在当前 TODO）
+
+- [ ] `change_log + seq` 增量同步
+- [ ] 正文缓存 LRU
+- [ ] pg_trgm 检索调优 + TUI fzf 外部二进制
+- [ ] `unlisted` 可见性
+- [ ] RAG / LLM：切片、embedding、`/api/llm/chat`、DeepSeek、TUI LLM tab
+- [ ] token 轮换 / 多客户端签发
+- [ ] Web UI 美化、备份异地推送

@@ -9,15 +9,20 @@ import skipFormatting from 'eslint-config-prettier/flat'
 export default defineConfig([
   {
     name: 'app/files-to-lint',
-    files: ['**/*.{vue,js,mjs,jsx}'],
+    files: ['**/*.{vue,ts,mts,tsx,js,mjs,jsx}'],
   },
 
-  globalIgnores(['**/dist/**', '**/dist-ssr/**', '**/coverage/**']),
+  globalIgnores(['**/dist/**', '**/dist-ssr/**', '**/coverage/**', '**/*.timestamp-*']),
 
   {
     languageOptions: {
       globals: {
         ...globals.browser,
+      },
+      parserOptions: {
+        parser: '@typescript-eslint/parser',
+        extraFileExtensions: ['.vue'],
+        sourceType: 'module',
       },
     },
   },
