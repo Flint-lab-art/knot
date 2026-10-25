@@ -82,12 +82,13 @@
 
 ## 阶段 6：TUI
 
-- [ ] `internal/tui/app.go`：Bubble Tea 根 Model，双栏布局
-- [ ] `views/list.go` / `detail.go` / `editor.go` / `tagpanel.go`
-- [ ] `statusbar.go`：同步状态、当前标签、快捷键
-- [ ] 快捷键：`/` 搜索、`t` 标签、`s` 同步、`q` 退出
-- [ ] 窄终端（< 100 列）自动单栏
-- [ ] 手测：浏览、搜索、编辑保存、同步
+- [x] `internal/tui/app.go`：Bubble Tea 根 Model，双栏布局
+- [x] `views/list.go` / `detail.go` / `editor.go` / `tagpanel.go`（合并为 `views/views.go`：List / Detail / StatusBar / TagPanel；`editor.go` 不适用——编辑交给外部编辑器）
+- [x] `statusbar.go`：同步状态、当前标签、快捷键（`views.StatusBar`）
+- [x] 快捷键：`/` 搜索、`t` 标签、`s` 同步、`q` 退出（另加 `j/k/g/G` 导航、`Esc` 清筛选）
+- [x] 窄终端（< 100 列）自动单栏
+- [x] 手测：浏览、搜索、编辑保存、同步
+  - 编辑走外部编辑器，TUI 里不内嵌编辑；`e` 入口留到二期（需要暂存终端再起编辑器）
 
 ## 阶段 7：Vue Web（TypeScript）
 

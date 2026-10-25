@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"context"
 	"io"
 	"runtime/debug"
 
 	"github.com/spf13/cobra"
 
+	"knot/internal/reconcile"
 	"knot/internal/tui"
 )
 
@@ -66,13 +68,41 @@ func NewRootCmd(out, errOut io.Writer) *cobra.Command {
 }
 
 // tuiCmd 构造 `knot tui`。
-func tuiCmd(_ *app) *cobra.Command {
+func tuiCmd(a *app) *cobra.Command {
 	return &cobra.Command{
 		Use:   "tui",
 		Short: "启动交互式 TUI 主界面",
 		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			return tui.Run()
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			cli, err := a.Client()
+			if err != nil {
+				return err
+			}
+			db, err := a.DB(ctx)
+			if err != nil {
+				return err
+			}
+			return tui.Run(tui.Deps{
+				Cache:  db,
+				Remote: cli,
+				Sync: func(ctx context.Context) (tui.SyncResult, error) {
+					snap, err := cli.Snapshot(ctx)
+					if err != nil {
+						return tui.SyncResult{}, err
+					}
+					plan, err := db.ApplySnapshot(ctx, snap, snap.SyncedAt)
+					if err != nil {
+						return tui.SyncResult{}, err
+					}
+					return tui.SyncResult{
+						Insert: plan.Stats[reconcile.ActionInsert],
+						Update: plan.Stats[reconcile.ActionUpdate],
+						Delete: plan.Stats[reconcile.ActionDelete],
+						Unlink: plan.Stats[reconcile.ActionUnlink],
+					}, nil
+				},
+			})
 		},
 	}
 }

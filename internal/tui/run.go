@@ -1,24 +1,36 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"os"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
+
+// ErrNoTTY 表示当前标准输入不是终端，TUI 无法交互。
+var ErrNoTTY = errors.New("需要交互式终端（请在 TTY 中直接运行 knot tui）")
+
+// isTTY 判断标准输入是否为终端（测试可替换）。
+var isTTY = func() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
+}
 
 // Run 启动 TUI 主循环（左栏列表 / 右栏详情 / 底部状态栏，见 docs/CLIENT.md）。
 //
-// 注意：阶段 1 这里不打开真实的 Bubble Tea 程序，只做终端校验后返回
-// ErrNotImplemented。真实 TUI 会在阶段 6 接管 stdin，而 `go test` 的 stdin
-// 在交互 shell 里就是 TTY，事件循环会让 make check 挂住；阶段 6 接入时
-// 用注入 io.Reader 的方式（tea.WithInput）测试，不做 TTY 真机测试。
-func Run() error {
-	fi, err := os.Stdin.Stat()
-	if err != nil {
-		return fmt.Errorf("%w：无法读取标准输入：%v", ErrNotImplemented, err)
+// 没有终端时立即返回 ErrNoTTY，绝不进入事件循环 —— 否则在非交互环境
+// （go test、CI、管道）里会永久阻塞。
+func Run(d Deps) error {
+	if !isTTY() {
+		return ErrNoTTY
 	}
-	if fi.Mode()&os.ModeCharDevice == 0 {
-		return fmt.Errorf("%w：需要交互式终端（请在 TTY 中直接运行 knot tui）", ErrNotImplemented)
+	p := tea.NewProgram(NewModel(d), tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		return fmt.Errorf("TUI 退出异常: %w", err)
 	}
-
-	return fmt.Errorf("%w：界面在阶段 6 接入", ErrNotImplemented)
+	return nil
 }
