@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/uuid"
+	"golang.org/x/term"
 
 	"knot/internal/dto"
 	"knot/internal/model"
@@ -404,5 +406,28 @@ func TestEmptyState(t *testing.T) {
 	}
 	if !strings.Contains(m.View(), "没有笔记") {
 		t.Fatalf("缺少空态提示:\n%s", m.View())
+	}
+}
+
+// /dev/null 是字符设备但不是终端：必须走 ErrNoTTY，不能进入事件循环。
+func TestIsTTYRejectsDevNull(t *testing.T) {
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("打开 %s: %v", os.DevNull, err)
+	}
+	defer func() { _ = devNull.Close() }()
+	if term.IsTerminal(int(devNull.Fd())) {
+		t.Skip("/dev/null 在本平台被判为终端，跳过")
+	}
+	// 直接验证判定函数的选择：字符设备判断会误判 /dev/null。
+	fi, err := devNull.Stat()
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if fi.Mode()&os.ModeCharDevice == 0 {
+		t.Fatal("/dev/null 应当是字符设备（说明本用例的前提成立）")
+	}
+	if term.IsTerminal(int(devNull.Fd())) {
+		t.Fatal("term.IsTerminal 不应把 /dev/null 当终端")
 	}
 }

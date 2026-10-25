@@ -25,7 +25,7 @@ C_BLUE  := \033[34m
 .PHONY: help
 help: ## 显示所有目标
 	@printf "$(C_BLUE)Knot Makefile$(C_RESET)\n\n"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| sort \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  $(C_GREEN)%-20s$(C_RESET) %s\n", $$1, $$2}'
 
@@ -95,6 +95,15 @@ test: ## 运行测试（含 race）
 .PHONY: test-short
 test-short: ## 跳过集成测试
 	$(GO) test -short -count=1 ./...
+
+.PHONY: e2e
+e2e: ## 本地真实 PG 端到端验收（建临时库，跑完自动清理）
+	@bash scripts/e2e-local.sh
+
+.PHONY: e2e-web
+e2e-web: ## 前端 api 层连真实后端（需先起 knot-server，KNOT_WEB_E2E_BASE 指定地址）
+	@if [ -z "$(KNOT_WEB_E2E_BASE)" ]; then echo "✗ 用法: make e2e-web KNOT_WEB_E2E_BASE=http://127.0.0.1:8080"; exit 1; fi
+	cd web && KNOT_WEB_E2E_BASE=$(KNOT_WEB_E2E_BASE) pnpm test:unit -- --run src/api/__tests__/integration.spec.ts
 
 .PHONY: cover
 cover: ## 生成覆盖率报告

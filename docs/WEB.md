@@ -203,6 +203,19 @@ font-family: "Inter Variable", "Noto Sans CJK SC",
 
 **降级方案**（不自托管时）：纯系统字体栈 `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`。苹果设备体验最佳，其他平台回退系统 UI 字体。
 
+### 构建产物体积（实测，2026-10）
+
+| 项 | 大小 | 说明 |
+|---|---|---|
+| `web/dist` 总计 | ~35 MB | 主要是 CJK 字体子集（774 个 woff2） |
+| 首屏实际下载（含中文） | ~580 KB（18 个子集） | 浏览器按 `unicode-range` 只取命中的子集 |
+| JS | ~225 KB（gzip ~90 KB） | 单 chunk，无代码分割 |
+| CSS | ~571 KB（gzip ~227 KB） | 含全部 `@font-face` 声明 |
+
+字体文件多但**不会被全部请求**：`unicode-range` 让浏览器按页面实际出现的字符挑子集。
+代价是部署包较大（`make dist` 约 37 MB）与磁盘占用，换来跨平台一致的排版。
+要压缩体积可改为只引简体常用子集，但需手工维护字符集，MVP 不做。
+
 ## 数据层
 
 ```text

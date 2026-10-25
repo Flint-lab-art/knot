@@ -41,6 +41,8 @@
 | `scripts/web-build.sh` | 校验 node/pnpm、`pnpm install --frozen-lockfile`（无 lock 时 fallback `pnpm install`，CI 下禁止 fallback）、`pnpm run build`、校验 `dist/index.html` |
 | `scripts/deploy.sh` | 服务器上安装/升级：校验包 → 备份 → 装文件 → 迁移 → 重启 → healthz 冒烟，失败自动回滚二进制 |
 | `scripts/backup.sh` | `pg_dump -Fc` + `pg_restore -l` 校验 + 保留 N 份；供 cron 调用 |
+| `scripts/e2e-local.sh` | 本地真实 PG 端到端验收：119 项断言，建临时库跑完自动清理 |
+| `scripts/e2e-tui.py` | PTY 驱动 TUI：双栏/单栏、标签面板、搜索、同步、退出 |
 
 ### sqlc 与迁移的 schema 同步
 
@@ -86,6 +88,8 @@ make sqlc-check-schema  # 只校验副本是否过期（pre-commit 在迁移变�
 | `clean` | 清 `bin/` + 测试结果 |
 | `clean-web` | 清 `web/dist` |
 | `clean-deps` | 删 `go.mod/go.sum` + 清模块与构建缓存 |
+| `e2e` | 本地真实 PG 端到端验收（调 `scripts/e2e-local.sh`） |
+| `e2e-web` | 前端 api 层连真实后端（需 `KNOT_WEB_E2E_BASE`） |
 | `backup` | 调 `scripts/backup.sh`（需 `PG_DSN`） |
 | `deploy` | 调 `scripts/deploy.sh "$(DEPLOY_PKG)"`（需 root） |
 
@@ -104,6 +108,41 @@ make sqlc-check-schema  # 只校验副本是否过期（pre-commit 在迁移变�
 | `internal/store/pg` | 本地 PG 或 testcontainers，事务、pg_trgm（需外部服务，`testing.Short()` 跳过） |
 | `internal/server/handler` | `httptest` + mock store，路由、鉴权 |
 | `web/` | Vitest：API 封装、筛选逻辑、**Markdown sanitize** |
+
+### 端到端验收（推荐在提交前跑）
+
+单元测试与集成测试都用 mock 或临时 schema，覆盖不到「真实进程 + 真实库 + 真实 HTTP」
+的组合。改完服务端、CLI 或本地缓存后，跑一次：
+
+```sh
+make e2e        # 约 20 秒
+```
+
+`scripts/e2e-local.sh` 会：
+
+1. 建临时库 `knot_e2e_<ts>_<rand>`、装 `pg_trgm`、跑迁移，验证重复迁移幂等与表结构；
+2. 起真实 `knot-server`，验证鉴权、错误码、分页游标、413、405、快照无正文；
+3. 用真实 `knot` CLI 跑新建/列表/查看/编辑/标签/搜索/删除/同步/缓存，
+   包括「无变化不提交」「仅空白差异不提交」「编辑期间并发修改 → 409」；
+4. 验证公开接口隔离（私密 404、标签不过滤）、限流 429 + `Retry-After`、
+   伪造 `X-Forwarded-For` 无效；
+5. 备份、`pg_restore` 恢复演练、轮转；
+6. 用 Python 逐条比对服务端快照与本地缓存是否一致。
+
+结束（含失败）自动删库与临时目录。可用 `PORT=` 换端口、`PG_ADMIN_DSN=` 换连接。
+
+TUI 的交互另有一份 PTY 驱动脚本（需要已配置好的 client.toml 与服务端）：
+
+```sh
+python3 scripts/e2e-tui.py --knot ./bin/knot --config ~/.config/knot/config.toml
+```
+
+前端 api 层可以直连真实后端跑（默认跳过，不拖慢 `pnpm test`）：
+
+```sh
+make run-server &
+make e2e-web KNOT_WEB_E2E_BASE=http://127.0.0.1:8080
+```
 
 ### PG 集成测试
 
