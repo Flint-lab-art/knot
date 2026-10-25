@@ -14,6 +14,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 DB_NAME="${KNOT_DB_NAME:-knot_migrate_check}"
+# 默认走本机 Unix socket（host=/run/postgresql）+ postgres 角色：
+# Debian/Ubuntu 的默认 pg_hba 对 local 是 trust/peer，通常不需要密码。
+# 换成 TCP + 密码认证的话，覆盖这两个变量即可：
+#   PG_ADMIN_DSN='postgres://postgres:密码@127.0.0.1:5432/postgres?sslmode=disable'
 PG_ADMIN_DSN="${PG_ADMIN_DSN:-postgres://postgres@/postgres?host=/run/postgresql&sslmode=disable}"
 PG_DSN="${PG_DSN:-postgres://postgres@/${DB_NAME}?host=/run/postgresql&sslmode=disable}"
 

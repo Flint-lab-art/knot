@@ -15,22 +15,51 @@
 
 ## 0. 准备（5 分钟）
 
+### 0.1 先确认 PG 怎么连
+
+Knot 的数据库就是本机的 PostgreSQL，**用 psql 直接建库即可**，不需要什么特殊环境。
+
+```sh
+# 看看本机 PG 在不在
+pg_isready
+
+# 看看有哪些可登录角色
+psql -U postgres -d postgres -tAc "select rolname from pg_roles where rolcanlogin"
+```
+
+两种情况：
+
+| 现象 | 说明 | 怎么连 |
+|---|---|---|
+| `psql -U postgres` 直接进得去（不要密码） | 本地 socket 是 `trust`，**推荐** | 一直用 `-U postgres` |
+| 提示要密码 | `pg_hba` 是 `scram-sha-256`/`md5` | 用 `PGPASSWORD=xxx psql -U postgres` 或写 `~/.pgpass` |
+
+> 本机当前情况：只有 `postgres` 一个角色，`psql -U postgres` 免密可进。
+> 直接敲 `psql`（不带 `-U`）会用你的系统用户名 `kairo` 去连，会报
+> `role "kairo" does not exist` —— 这就是为什么每条命令都要带 `-U postgres`。
+
+### 0.2 建测试库
+
 ```sh
 cd /path/to/knot
 
-# 1) 编译
+# 编译
 make build-cli
 
-# 2) 建一个专用的测试库（不要用正式数据）
-#    PG_USER / PG_SOCK 按你的环境调整；peer 认证时要显式指定 -U postgres，
-#    直接 `createdb` 会用当前系统用户，多半连不上。
-PG_U="${PG_U:-postgres}"
-psql "postgres://${PG_U}@/postgres?host=/run/postgresql&sslmode=disable" \
-  -c 'CREATE DATABASE knot_manual'
-psql "postgres://${PG_U}@/knot_manual?host=/run/postgresql&sslmode=disable" \
-  -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm'
+# 建一个专用测试库（不要用正式数据）
+psql -U postgres -d postgres -c 'CREATE DATABASE knot_manual'
+psql -U postgres -d knot_manual -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm'
+```
 
-# 3) 建配置目录
+想进交互式环境看看的话，`psql -U postgres -d knot_manual` 进去，用 `\dt` 看表、
+`\d notes` 看结构、`\l` 看所有库，`\q` 退出。**下面的步骤都不需要进 psql 环境**，
+单条 `-c` 就够了。
+
+### 0.3 写客户端配置
+
+CLI 需要知道服务端地址和 token：
+
+```sh
 mkdir -p ~/.config/knot
 cat > ~/.config/knot/config.toml <<'EOF'
 server_url = "http://127.0.0.1:8080"
@@ -43,17 +72,33 @@ command = "nvim"
 path = "/tmp/knot-manual/cache.db"
 EOF
 chmod 600 ~/.config/knot/config.toml
+mkdir -p /tmp/knot-manual
 ```
 
-起服务（**开一个独立终端，保持运行**）：
+### 0.4 起服务（**新开一个终端，保持运行**）
 
 ```sh
 # 终端 A
-export KNOT_PG_DSN='postgres://postgres@/knot_manual?host=/run/postgresql&sslmode=disable'
-make build-server >/dev/null && ./bin/knot-server-linux-amd64 migrate
-KNOT_PG_DSN="$KNOT_PG_DSN" KNOT_TOKEN=manual-test-token KNOT_LISTEN=127.0.0.1:8080 \
+make build-server >/dev/null
+
+# 迁移
+KNOT_PG_DSN='postgres://postgres@/knot_manual?host=/run/postgresql&sslmode=disable' \
+  ./bin/knot-server-linux-amd64 migrate
+
+# 起服务
+KNOT_PG_DSN='postgres://postgres@/knot_manual?host=/run/postgresql&sslmode=disable' \
+KNOT_TOKEN=manual-test-token \
+KNOT_LISTEN=127.0.0.1:8080 \
   ./bin/knot-server-linux-amd64
 ```
+
+> **为什么这里用这么长的连接串？** 服务端是程序，要一份明确的 DSN。
+> `postgres://postgres@/knot_manual?host=/run/postgresql&sslmode=disable` 的意思是：
+> 用户 `postgres`、库 `knot_manual`、走本机 Unix socket（不经过 TCP）、不开 SSL。
+> 你在终端里手动操作时不用它，`psql -U postgres -d knot_manual` 是同一件事的简写。
+>
+> 如果以后改成 TCP + 密码认证，DSN 换成
+> `postgres://postgres:密码@127.0.0.1:5432/knot_manual?sslmode=disable` 即可。
 
 > 如果你更习惯 `go run ./cmd/knot-server` 也行，只要环境变量一致。
 > 如果 PG 不是 peer 认证，把 DSN 换成你自己的。
@@ -81,6 +126,13 @@ KNOT_PG_DSN="$KNOT_PG_DSN" KNOT_TOKEN=manual-test-token KNOT_LISTEN=127.0.0.1:80
 - [ ] 输出是 `<uuid>  第一篇笔记`，uuid 是标准 36 位
 - [ ] `knot list` 里能看到它，带 `#go #笔记`
 - [ ] `knot show 第一篇笔记` 输出标题、标签、可见性、版本、正文
+- [ ] 进数据库亲眼确认（可选，但能建立「CLI 真在写库」的实感）：
+
+      ```sh
+      psql -U postgres -d knot_manual -c "select id, title, visibility, version from notes"
+      psql -U postgres -d knot_manual -c "select * from tags"
+      ```
+
 
 ### 1.2 用真编辑器写正文
 
@@ -478,8 +530,7 @@ ID=$(./bin/knot list --json | python3 -c 'import json,sys;print(json.load(sys.st
 
 ```sh
 # 停服务：终端 A Ctrl+C，终端 C Ctrl+C
-psql "postgres://${PG_U:-postgres}@/postgres?host=/run/postgresql&sslmode=disable" \
-  -c 'DROP DATABASE IF EXISTS knot_manual'
+psql -U postgres -d postgres -c 'DROP DATABASE IF EXISTS knot_manual'
 rm -rf /tmp/knot-manual
 rm -f ~/.config/knot/config.toml        # 如果这个配置是专为测试建的
 ```
