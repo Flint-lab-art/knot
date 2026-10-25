@@ -15,6 +15,16 @@ if ! make check; then
   exit 1
 fi
 
+# 迁移改了却没重新生成 sqlc schema 副本，会让 store 代码与真实表结构漂移
+if git diff --cached --name-only --diff-filter=ACMR | grep -qE '^migrations/pg/'; then
+  echo "→ pre-commit: 校验 sqlc schema 与迁移一致"
+  if ! make sqlc-check-schema; then
+    echo
+    echo "✗ sqlc schema 副本过期，提交已中止（运行 make sqlc-schema 后重新提交）。"
+    exit 1
+  fi
+fi
+
 # 若本次提交涉及前端代码，额外跑一次 Vitest（一次性执行，不 watch）
 if git diff --cached --name-only --diff-filter=ACMR | grep -qE '^web/(src|tests?)/'; then
   if [ -d web/node_modules ]; then

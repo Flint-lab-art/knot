@@ -1,0 +1,24 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    # 只放业务查询，不放迁移（goose 的 -- +goose 注释会让 sqlc 解析失败）。
+    # 迁移的 schema 由 migrations/pg/ 管理，这里用表结构副本给 sqlc 建目录；
+    # 两者由 `make sqlc-check-schema` 保证一致。
+    schema: "internal/store/pg/sqlcgen/schema.sql"
+    queries: "internal/store/pg/queries"
+    gen:
+      go:
+        package: "sqlcgen"
+        out: "internal/store/pg/sqlcgen"
+        sql_package: "pgx/v5"
+        emit_interface: true
+        emit_exact_table_names: false
+        emit_json_tags: false
+        emit_empty_slices: true
+        overrides:
+          - db_type: "uuid"
+            go_type: "github.com/google/uuid.UUID"
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          - db_type: "integer"
+            go_type: "int32"

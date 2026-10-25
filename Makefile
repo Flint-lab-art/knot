@@ -56,9 +56,18 @@ hooks: ## 启用仓库内 git hooks（core.hooksPath=.githooks）
 db-setup: ## 本地 PG 建库 + 装 pg_trgm + 跑迁移（调 scripts/db-setup.sh）
 	@bash scripts/db-setup.sh
 
+.PHONY: sqlc-schema
+sqlc-schema: ## 由 migrations/pg 生成 sqlc 专用 schema.sql
+	@bash scripts/sqlc-schema.sh
+
+.PHONY: sqlc-check-schema
+sqlc-check-schema: ## 校验 sqlcgen/schema.sql 与迁移一致（pre-commit 调用）
+	@bash scripts/sqlc-schema.sh --check
+
 .PHONY: sqlc
-sqlc: ## 生成 sqlc 代码
+sqlc: ## 生成 sqlc 代码（先同步 schema）
 	@command -v sqlc >/dev/null 2>&1 || { echo "✗ 先执行 make tools"; exit 1; }
+	@bash scripts/sqlc-schema.sh
 	sqlc generate
 
 # ---------- 启动 ----------
