@@ -90,7 +90,9 @@ func listCmd(a *app) *cobra.Command {
 				return err
 			}
 			if asJSON {
-				return writeJSON(a.out, notes)
+				// 本地缓存没有 version 列（不需要乐观锁），直接输出 dto.Note
+				// 会出现恒为 0 的误导性字段，因此用专门的结构裁剪掉。
+				return writeJSON(a.out, toLocalNotesJSON(notes))
 			}
 			if len(notes) == 0 {
 				_, _ = fmt.Fprintln(a.out, "（本地没有笔记，试跑 `knot sync`）")
@@ -107,6 +109,31 @@ func listCmd(a *app) *cobra.Command {
 	cmd.Flags().BoolVar(&asJSON, "json", false, "输出 JSON")
 	cmd.Flags().IntVar(&limit, "limit", 0, "最多列出多少条（0 表示不限）")
 	return cmd
+}
+
+// localNoteJSON 是 `list --json` 的输出结构：本地缓存真实拥有的字段。
+type localNoteJSON struct {
+	ID         uuid.UUID `json:"id"`
+	Title      string    `json:"title"`
+	Visibility string    `json:"visibility"`
+	CreatedAt  time.Time `json:"created_at"`
+	ModifiedAt time.Time `json:"modified_at"`
+	Tags       []string  `json:"tags"`
+}
+
+func toLocalNotesJSON(notes []dto.Note) []localNoteJSON {
+	out := make([]localNoteJSON, len(notes))
+	for i, n := range notes {
+		tags := n.Tags
+		if tags == nil {
+			tags = []string{}
+		}
+		out[i] = localNoteJSON{
+			ID: n.ID, Title: n.Title, Visibility: n.Visibility,
+			CreatedAt: n.CreatedAt, ModifiedAt: n.ModifiedAt, Tags: tags,
+		}
+	}
+	return out
 }
 
 // formatListLine 渲染一行列表。

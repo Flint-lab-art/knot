@@ -499,3 +499,28 @@ func TestFormatListLine(t *testing.T) {
 		t.Fatalf("line = %q", got)
 	}
 }
+
+// list --json 不应输出本地缓存没有的字段（如恒为 0 的 version）。
+func TestListJSONOmitsVersion(t *testing.T) {
+	e := newTestEnv(t, "")
+	e.fs.add("笔记", "", "go")
+	e.syncCache()
+	if err := e.run("list", "--json"); err != nil {
+		t.Fatalf("list --json: %v\n%s", err, e.errOut.String())
+	}
+	var out []map[string]any
+	if err := json.Unmarshal(e.out.Bytes(), &out); err != nil {
+		t.Fatalf("解析输出: %v\n%s", err, e.out.String())
+	}
+	if len(out) != 1 {
+		t.Fatalf("条数 = %d", len(out))
+	}
+	if _, ok := out[0]["version"]; ok {
+		t.Fatalf("本地列表不应输出 version: %v", out[0])
+	}
+	for _, k := range []string{"id", "title", "tags", "created_at", "modified_at", "visibility"} {
+		if _, ok := out[0][k]; !ok {
+			t.Fatalf("缺少字段 %q: %v", k, out[0])
+		}
+	}
+}

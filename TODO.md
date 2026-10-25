@@ -106,12 +106,12 @@
 
 ## 阶段 8：Neovim 插件
 
-- [ ] `nvim/` 目录：lua 插件，调 `knot` CLI
-- [ ] 编辑入口
-- [ ] 搜索弹窗
-- [ ] 标签面板
-- [ ] 关联笔记面板
-- [ ] 手测
+- [x] `nvim/` 目录：lua 插件，调 `knot` CLI（`lua/knot/init.lua`）
+- [x] 编辑入口（`:KnotEdit`，异步执行，不阻塞 Neovim）
+- [x] 搜索弹窗（`:KnotSearch`，服务端检索）
+- [x] 标签面板（`:KnotTags`）
+- [x] 关联笔记面板（`:KnotRelated`，按共享标签在客户端计算）
+- [x] 手测（`nvim -l nvim/tests/run.lua` 自检 + 真实 CLI 集成验证）
 
 ## 阶段 9：部署联调
 
