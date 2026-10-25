@@ -92,17 +92,17 @@
 
 ## 阶段 7：Vue Web（TypeScript）
 
-- [ ] `vite.config.ts` 确认 proxy（已完成，复核即可）
-- [ ] `src/types/`：与 `docs/API.md` 对齐的 DTO 类型
-- [ ] `src/api/client.ts` / `notes.ts` / `tags.ts`
-- [ ] `src/views/NoteList.vue` / `NoteDetail.vue` / `NotFound.vue`
-- [ ] `src/components/NoteCard.vue` / `TagBar.vue` / `MarkdownView.vue` / `Pagination.vue`
-- [ ] 装 `markdown-it` + `@types/markdown-it` + `dompurify` + `@fontsource-variable/inter` + `noto-sans-cjk-sc`
-- [ ] CSS 变量：颜色、字号、间距、圆角、卡片参数（按 `WEB.md`）
-- [ ] 三态：加载 / 空 / 错误；429 提示
-- [ ] Vitest：Markdown sanitize 四条用例（`<script>`、`onerror`、`javascript:`、GFM 不误伤）
-- [ ] `make web-dev` 手测列表、阅读、标签筛选、429
-- [ ] `make web-build` 产出 dist
+- [x] `vite.config.ts` 确认 proxy（已完成，复核即可）
+- [x] `src/types/`：与 `docs/API.md` 对齐的 DTO 类型（`types/api.ts`，只含公开接口字段）
+- [x] `src/api/client.ts` / `notes.ts` / `tags.ts`
+- [x] `src/views/NoteList.vue` / `NoteDetail.vue` / `NotFound.vue`
+- [x] `src/components/NoteCard.vue` / `TagBar.vue` / `MarkdownView.vue` / `Pagination.vue`
+- [x] 装 `markdown-it` + `@types/markdown-it` + `dompurify` + `@fontsource-variable/inter` + `noto-sans-cjk-sc`
+- [x] CSS 变量：颜色、字号、间距、圆角、卡片参数（按 `WEB.md`）
+- [x] 三态：加载 / 空 / 错误；429 提示
+- [x] Vitest：Markdown sanitize 四条用例（`<script>`、`onerror`、`javascript:`、GFM 不误伤）
+- [x] `make web-dev` 手测列表、阅读、标签筛选、429（Vite 代理 + 公开接口过滤已验；渲染态由 48 条 Vitest 覆盖）
+- [x] `make web-build` 产出 dist
 
 ## 阶段 8：Neovim 插件
 

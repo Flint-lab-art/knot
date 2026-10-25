@@ -1,35 +1,180 @@
-@import './base.css';
+/* 全局样式与设计令牌（docs/WEB.md「视觉风格」）。
+ *
+ * 只放：字体、颜色变量、排版基线、暗色覆盖。
+ * 组件尺寸参数放各自的 scoped 样式里，便于就近修改。
+ */
 
-#app {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  font-weight: normal;
+@import '@fontsource-variable/inter';
+@import 'noto-sans-cjk-sc/regular.css';
+@import 'noto-sans-cjk-sc/bold.css';
+
+:root {
+  /* 颜色：亮色 */
+  --color-bg: #ffffff;
+  --color-text: #1d1d1f;
+  --color-muted: #6e6e73;
+  --color-border: #d2d2d7;
+  --color-border-strong: #a1a1a6;
+  --color-accent: #0066cc;
+  --color-accent-soft: #e8f0fb;
+  --color-code-bg: #f5f5f7;
+
+  /* 字号 */
+  --font-size-body: 17px;
+  --font-size-h1: 32px;
+  --font-size-h2: 24px;
+  --font-size-h3: 20px;
+  --font-size-meta: 14px;
+  --line-height-body: 1.7;
+
+  /* 间距 */
+  --content-width: 760px;
+  --pad-x: 24px;
+  --space-para: 1em;
+  --space-h-before: 1.5em;
+  --space-h-after: 0.5em;
+
+  /* 圆角 */
+  --radius-card: 10px;
+  --radius-pill: 999px;
+  --radius-control: 8px;
+
+  /* 动效 */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration: 180ms;
+
+  --font-sans:
+    'Inter Variable', 'Noto Sans CJK SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui,
+    sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
 
-a,
-.green {
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #000000;
+    --color-text: #f5f5f7;
+    --color-muted: #86868b;
+    --color-border: #424245;
+    --color-border-strong: #6e6e73;
+    --color-accent: #4d9fff;
+    --color-accent-soft: #10233a;
+    --color-code-bg: #1c1c1e;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  /* 中文默认字体略重，关掉合成加粗的视觉噪声 */
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--color-accent);
   text-decoration: none;
-  color: hsla(160, 100%, 37%, 1);
-  transition: 0.4s;
-  padding: 3px;
+  transition: color var(--duration) var(--ease);
 }
 
-@media (hover: hover) {
-  a:hover {
-    background-color: hsla(160, 100%, 37%, 0.2);
-  }
+a:hover {
+  text-decoration: underline;
 }
 
-@media (min-width: 1024px) {
-  body {
-    display: flex;
-    place-items: center;
-  }
+h1,
+h2,
+h3 {
+  line-height: 1.25;
+  margin: var(--space-h-before) 0 var(--space-h-after);
+  font-weight: 600;
+}
 
-  #app {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    padding: 0 2rem;
+h1 {
+  font-size: var(--font-size-h1);
+  font-weight: 700;
+}
+
+h2 {
+  font-size: var(--font-size-h2);
+}
+
+h3 {
+  font-size: var(--font-size-h3);
+}
+
+p {
+  margin: var(--space-para) 0;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--color-code-bg);
+  border-radius: 4px;
+  padding: 0.15em 0.35em;
+}
+
+pre {
+  background: var(--color-code-bg);
+  border-radius: var(--radius-control);
+  padding: 16px;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.875em;
+}
+
+blockquote {
+  margin: var(--space-para) 0;
+  padding-left: 16px;
+  border-left: 3px solid var(--color-border);
+  color: var(--color-muted);
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: var(--space-para) 0;
+  display: block;
+  overflow-x: auto;
+}
+
+th,
+td {
+  border: 1px solid var(--color-border);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--color-border);
+  margin: 2em 0;
+}
+
+@media (max-width: 767px) {
+  :root {
+    --pad-x: 16px;
   }
 }

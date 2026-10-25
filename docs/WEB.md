@@ -240,6 +240,18 @@ export function useNotes() { ... }
 
 这一组测试比 API 封装测试价值更高，是公开站的 XSS 底线。
 
+实现细节（阶段 7）：
+
+- 两层防御各自独立：`markdown-it` 用 `html: false` 把原始标签**转义**成文本，
+  `DOMPurify` 再兜一层。任何一层失效，另一层仍能拦住。
+- 链接在渲染阶段就检查协议：`javascript:` / `vbscript:` / `data:` 不生成 `<a>`
+  （`isUnsafeHref`），外链自动加 `rel="noopener noreferrer"` 与 `target="_blank"`。
+- 安全断言一律看 **DOM 有没有可执行节点**，而不是字符串里有没有关键字：
+  转义后的 `&lt;script&gt;alert(1)&lt;/script&gt;` 作为可见文本出现是无害的。
+- 任务列表**不引插件**：`- [x]` 降级成普通列表项（复选框属于原始 HTML，
+  与 `html: false` 冲突）。要支持需引额外依赖，MVP 不做。
+- `MarkdownView.vue` 是全项目唯一使用 `v-html` 的位置，已加 eslint 注释说明。
+
 ## 构建与开发
 
 开发时前后端分开跑：
