@@ -586,3 +586,235 @@ func TestEditFailureSurfaced(t *testing.T) {
 		t.Fatalf("status = %q", m.status)
 	}
 }
+
+// ---------------- 改名 / 删除 ----------------
+
+// recordingRemote 记录写操作，供改名/删除断言。
+type recordingRemote struct {
+	detail  dto.NoteDetail
+	updated dto.Note
+	deleted uuid.UUID
+	title   string
+	rawMD   string
+	err     error
+}
+
+func (r *recordingRemote) GetNote(context.Context, uuid.UUID) (dto.NoteDetail, error) {
+	return r.detail, r.err
+}
+func (r *recordingRemote) UpdateNote(_ context.Context, _ uuid.UUID, title, rawMD string, _ model.Visibility, _ int64) (dto.Note, error) {
+	if r.err != nil {
+		return dto.Note{}, r.err
+	}
+	r.title, r.rawMD = title, rawMD
+	return r.updated, nil
+}
+func (r *recordingRemote) DeleteNote(_ context.Context, id uuid.UUID) error {
+	if r.err != nil {
+		return r.err
+	}
+	r.deleted = id
+	return nil
+}
+
+func newRenameModel(remote *recordingRemote) Model {
+	n := note(uuid.New(), "原标题")
+	m := newTestModel(&fakeCache{notes: []dto.Note{n}})
+	m.notes = []dto.Note{n}
+	m.selected = &n
+	m.deps.Remote = remote
+	return m
+}
+
+// r 键打开改名输入框，预填当前标题。
+func TestRenameOpensWithCurrentTitle(t *testing.T) {
+	m := newRenameModel(&recordingRemote{})
+	updated, _ := m.Update(key("r"))
+	m = updated.(Model)
+	if m.mode != modeRenaming {
+		t.Fatal("r 应进入改名模式")
+	}
+	if m.rename != "原标题" {
+		t.Fatalf("应预填当前标题，实际 %q", m.rename)
+	}
+	if !strings.Contains(m.View(), "标题: 原标题") {
+		t.Fatalf("输入框未显示:\n%s", m.View())
+	}
+}
+
+// 输入新标题后回车 → 调 UpdateNote，正文原样带上（PUT 是整篇覆盖）。
+func TestRenameSubmitsWithExistingBody(t *testing.T) {
+	remote := &recordingRemote{
+		detail:  dto.NoteDetail{Note: note(uuid.New(), "原标题"), RawMD: "# 原正文\n"},
+		updated: note(uuid.New(), "新标题"),
+	}
+	m := newRenameModel(remote)
+
+	updated, _ := m.Update(key("r"))
+	m = updated.(Model)
+	m.rename = "新标题"
+	updated, cmd := m.Update(key("enter"))
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("回车应触发提交")
+	}
+	runCmd(t, cmd)
+
+	if remote.title != "新标题" {
+		t.Fatalf("提交的标题 = %q", remote.title)
+	}
+	if remote.rawMD != "# 原正文\n" {
+		t.Fatalf("必须原样回传正文，否则会清空内容；实际 %q", remote.rawMD)
+	}
+}
+
+// Esc 取消改名，不发请求。
+func TestRenameCancel(t *testing.T) {
+	remote := &recordingRemote{}
+	m := newRenameModel(remote)
+	updated, _ := m.Update(key("r"))
+	m = updated.(Model)
+	updated, cmd := m.Update(key("esc"))
+	m = updated.(Model)
+	if m.mode != modeList {
+		t.Fatal("Esc 应回到列表")
+	}
+	if cmd != nil {
+		t.Fatal("取消不应发请求")
+	}
+	if remote.title != "" {
+		t.Fatal("取消不应调用 UpdateNote")
+	}
+}
+
+// 空标题不允许提交。
+func TestRenameRejectsEmptyTitle(t *testing.T) {
+	remote := &recordingRemote{}
+	m := newRenameModel(remote)
+	updated, _ := m.Update(key("r"))
+	m = updated.(Model)
+	m.rename = "   "
+	updated, cmd := m.Update(key("enter"))
+	m = updated.(Model)
+	if cmd != nil {
+		t.Fatal("空标题不应提交")
+	}
+	if !strings.Contains(m.status, "不能为空") {
+		t.Fatalf("status = %q", m.status)
+	}
+}
+
+// 标题没变 → 不发请求。
+func TestRenameUnchangedIsNoop(t *testing.T) {
+	remote := &recordingRemote{}
+	m := newRenameModel(remote)
+	updated, _ := m.Update(key("r"))
+	m = updated.(Model)
+	updated, cmd := m.Update(key("enter"))
+	m = updated.(Model)
+	if cmd != nil {
+		t.Fatal("标题未变化不应提交")
+	}
+	if remote.title != "" {
+		t.Fatal("不应调用 UpdateNote")
+	}
+	if !strings.Contains(m.status, "未变化") {
+		t.Fatalf("应提示标题未变化，实际 %q", m.status)
+	}
+}
+
+// d 键进入确认，必须按 y 才删除。
+func TestDeleteRequiresConfirmation(t *testing.T) {
+	remote := &recordingRemote{}
+	m := newRenameModel(remote)
+	target := m.selected.ID
+
+	updated, _ := m.Update(key("d"))
+	m = updated.(Model)
+	if m.mode != modeConfirmDelete {
+		t.Fatal("d 应进入删除确认")
+	}
+	if !strings.Contains(m.View(), "删除「原标题」？") {
+		t.Fatalf("确认栏未显示:\n%s", m.View())
+	}
+
+	updated, cmd := m.Update(key("n"))
+	m = updated.(Model)
+	if cmd != nil || remote.deleted != uuid.Nil {
+		t.Fatal("按 n 不应删除")
+	}
+
+	updated, _ = m.Update(key("d"))
+	m = updated.(Model)
+	updated, cmd = m.Update(key("y"))
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("按 y 应执行删除")
+	}
+	msg := runCmd(t, cmd).(savedMsg)
+	if msg.deleted != target {
+		t.Fatalf("删除的 id = %v, want %v", msg.deleted, target)
+	}
+}
+
+// 删除成功后从列表移除，光标落到剩余条目。
+func TestDeleteRemovesFromList(t *testing.T) {
+	a, b := note(uuid.New(), "a"), note(uuid.New(), "b")
+	m := newTestModel(&fakeCache{notes: []dto.Note{a, b}})
+	m.notes = []dto.Note{a, b}
+	m.selected = &a
+	m.cursor = 1
+
+	updated, _ := m.Update(savedMsg{action: "删除", deleted: a.ID, deletedTitle: "a"})
+	m = updated.(Model)
+	if len(m.notes) != 1 || m.notes[0].ID != b.ID {
+		t.Fatalf("列表未正确移除: %+v", m.notes)
+	}
+	if m.cursor != 0 {
+		t.Fatalf("光标应回到有效位置，实际 %d", m.cursor)
+	}
+	if !strings.Contains(m.status, "已删除「a」") {
+		t.Fatalf("status = %q", m.status)
+	}
+}
+
+// 改名成功后列表行就地更新。
+func TestRenameUpdatesListRow(t *testing.T) {
+	n := note(uuid.New(), "旧标题")
+	m := newTestModel(&fakeCache{notes: []dto.Note{n}})
+	m.notes = []dto.Note{n}
+	m.selected = &n
+
+	renamed := n
+	renamed.Title = "新标题"
+	updated, _ := m.Update(savedMsg{action: "改标题", note: &renamed})
+	m = updated.(Model)
+	if m.notes[0].Title != "新标题" {
+		t.Fatalf("列表行未更新: %+v", m.notes[0])
+	}
+	if m.selected.Title != "新标题" {
+		t.Fatalf("详情未更新: %+v", m.selected)
+	}
+}
+
+// 写操作失败要把错误显示到状态栏。
+func TestRenameFailureSurfaced(t *testing.T) {
+	m := newTestModel(&fakeCache{})
+	updated, _ := m.Update(savedMsg{action: "改标题", err: errors.New("409: version conflict")})
+	m = updated.(Model)
+	if !strings.Contains(m.status, "version conflict") {
+		t.Fatalf("status = %q", m.status)
+	}
+}
+
+// 没有选中笔记时 r / d 给出提示而不是静默。
+func TestRenameDeleteWithoutSelection(t *testing.T) {
+	m := newTestModel(&fakeCache{})
+	for _, k := range []string{"r", "d"} {
+		updated, _ := m.Update(key(k))
+		m = updated.(Model)
+		if !strings.Contains(m.status, "先选择") {
+			t.Fatalf("%q: status = %q", k, m.status)
+		}
+	}
+}

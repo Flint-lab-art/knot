@@ -10,9 +10,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/google/uuid"
 
 	"knot/internal/client"
 	"knot/internal/dto"
+	"knot/internal/model"
 	"knot/internal/tui/views"
 )
 
@@ -37,6 +39,10 @@ const (
 	modeList mode = iota
 	modeSearch
 	modeTagPanel
+	// modeRenaming 是「改标题」输入框。
+	modeRenaming
+	// modeConfirmDelete 是删除确认。
+	modeConfirmDelete
 )
 
 // Model 是 Bubble Tea 根 Model。
@@ -53,6 +59,9 @@ type Model struct {
 	filter    string
 	searching bool
 	search    string
+
+	// rename 是「改标题」输入框的缓冲区（预填当前标题）。
+	rename string
 
 	// 详情
 	selected     *dto.Note
@@ -105,6 +114,17 @@ type syncMsg struct {
 }
 
 type tagsMsg struct{ tags []string }
+
+// savedMsg 是改名 / 删除 / 编辑等写操作的结果。
+type savedMsg struct {
+	action string
+	// note 是改名成功后的新元数据（用于就地更新列表行）。
+	note *dto.Note
+	// deleted 是刚删除的笔记 id。
+	deleted      uuid.UUID
+	deletedTitle string
+	err          error
+}
 
 // Update 实现 tea.Model。
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -172,6 +192,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 编辑器里可能改了正文，重新拉一次当前笔记并刷新列表。
 		return m, tea.Batch(m.loadNotes(), m.detailCmd())
 
+	case savedMsg:
+		if msg.err != nil {
+			m.status = msg.action + "失败: " + msg.err.Error()
+			return m, nil
+		}
+		switch {
+		case msg.note != nil:
+			// 改名成功：就地更新列表行，再重新拉一次列表保持排序正确。
+			for i := range m.notes {
+				if m.notes[i].ID == msg.note.ID {
+					m.notes[i] = *msg.note
+					break
+				}
+			}
+			if m.selected != nil && m.selected.ID == msg.note.ID {
+				n := *msg.note
+				m.selected = &n
+			}
+			m.status = msg.action + "成功"
+			return m, m.loadNotes()
+		case msg.deleted != uuid.Nil:
+			// 删除成功：从列表移除，光标落到相邻条目。
+			kept := m.notes[:0]
+			for _, n := range m.notes {
+				if n.ID != msg.deleted {
+					kept = append(kept, n)
+				}
+			}
+			m.notes = kept
+			m.clampCursor()
+			m.status = "已删除「" + msg.deletedTitle + "」"
+			return m, tea.Batch(m.loadNotes(), m.detailCmd())
+		}
+		m.status = msg.action + "成功"
+		return m, m.loadNotes()
+
 	case syncMsg:
 		m.syncing = false
 		if msg.err != nil {
@@ -199,6 +255,12 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.mode == modeTagPanel {
 		return m.handleTagKey(k)
+	}
+	if m.mode == modeRenaming {
+		return m.handleRenameKey(k)
+	}
+	if m.mode == modeConfirmDelete {
+		return m.handleDeleteKey(k)
 	}
 
 	switch k.String() {
@@ -240,6 +302,21 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
 			return editMsg{err: err}
 		})
+	case "r":
+		if m.selected == nil {
+			m.status = "先选择一篇笔记"
+			return m, nil
+		}
+		m.mode = modeRenaming
+		m.rename = m.selected.Title
+		return m, nil
+	case "d":
+		if m.selected == nil {
+			m.status = "先选择一篇笔记"
+			return m, nil
+		}
+		m.mode = modeConfirmDelete
+		return m, nil
 	case "s":
 		if m.syncing {
 			m.status = "同步进行中…"
@@ -257,6 +334,108 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// handleRenameKey 处理「改标题」输入框。
+//
+// 支持退格与 Esc 取消；回车提交（空标题视为取消，避免把笔记改无名）。
+func (m Model) handleRenameKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.Type {
+	case tea.KeyEsc:
+		m.mode = modeList
+		m.status = "已取消改名"
+		return m, nil
+	case tea.KeyEnter:
+		title := strings.TrimSpace(m.rename)
+		m.mode = modeList
+		if title == "" {
+			m.status = "标题不能为空，已取消"
+			return m, nil
+		}
+		if m.selected != nil && title == m.selected.Title {
+			m.status = "标题未变化"
+			return m, nil
+		}
+		cmd := m.renameCmd(title)
+		m.status = "正在改标题…"
+		return m, cmd
+	case tea.KeyBackspace:
+		if r := []rune(m.rename); len(r) > 0 {
+			m.rename = string(r[:len(r)-1])
+		}
+		return m, nil
+	case tea.KeySpace:
+		m.rename += " "
+		return m, nil
+	case tea.KeyRunes:
+		m.rename += string(k.Runes)
+		return m, nil
+	}
+	return m, nil
+}
+
+// handleDeleteKey 处理删除确认：只有 y / Y 才真正删除。
+func (m Model) handleDeleteKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "y", "Y", "enter":
+		m.mode = modeList
+		cmd := m.deleteCmd()
+		m.status = "正在删除…"
+		return m, cmd
+	case "n", "N", "esc", "q":
+		m.mode = modeList
+		m.status = "已取消删除"
+		return m, nil
+	}
+	return m, nil
+}
+
+// renameCmd 提交新标题。
+//
+// 只改标题、正文原样回传：PUT 是「整篇覆盖」语义，所以必须带上当前正文
+// 与最新 version，否则会把正文清空或撞 409。
+func (m Model) renameCmd(title string) tea.Cmd {
+	if m.deps.Remote == nil || m.selected == nil {
+		return nil
+	}
+	id := m.selected.ID
+	ctx := context.Background()
+	remote, cache, now := m.deps.Remote, m.deps.Cache, m.deps.Now()
+	return func() tea.Msg {
+		timeoutCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+		defer cancel()
+		// 先取最新版本与正文：列表里的 meta 不含 version 与正文。
+		detail, err := remote.GetNote(timeoutCtx, id)
+		if err != nil {
+			return savedMsg{action: "改标题", err: err}
+		}
+		updated, err := remote.UpdateNote(timeoutCtx, id, title, detail.RawMD,
+			model.Visibility(detail.Visibility), detail.Version)
+		if err != nil {
+			return savedMsg{action: "改标题", err: err}
+		}
+		if cache != nil {
+			_ = cache.SaveContent(timeoutCtx, id, detail.RawMD, now)
+		}
+		return savedMsg{action: "改标题", note: &updated}
+	}
+}
+
+// deleteCmd 删除当前选中的笔记。
+func (m Model) deleteCmd() tea.Cmd {
+	if m.deps.Remote == nil || m.selected == nil {
+		return nil
+	}
+	id, title := m.selected.ID, m.selected.Title
+	remote := m.deps.Remote
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+		defer cancel()
+		if err := remote.DeleteNote(ctx, id); err != nil {
+			return savedMsg{action: "删除", err: err}
+		}
+		return savedMsg{action: "删除", deleted: id, deletedTitle: title}
+	}
 }
 
 // handleSearchKey 处理搜索框输入。
@@ -331,8 +510,17 @@ func (m Model) View() string {
 	}
 
 	bar := views.StatusBar(m.status, m.filterChip(), m.keysHint(), m.width)
-	if m.searching {
+	switch {
+	case m.searching:
 		bar = views.StatusBar("/"+m.search+"_", "", "回车搜索  Esc 取消", m.width)
+	case m.mode == modeRenaming:
+		bar = views.StatusBar("标题: "+m.rename+"_", "", "回车确认  Esc 取消", m.width)
+	case m.mode == modeConfirmDelete:
+		title := ""
+		if m.selected != nil {
+			title = m.selected.Title
+		}
+		bar = views.StatusBar("删除「"+title+"」？y 确认  n 取消", "", "", m.width)
 	}
 
 	if m.width < narrowWidth {
@@ -524,6 +712,10 @@ func (m Model) keysHint() string {
 	keys := "t 标签  / 搜索  s 同步  q 退出"
 	if m.deps.Edit != nil {
 		keys = "e 编辑  " + keys
+	}
+	// 改名/删除只依赖 Remote（走 HTTP），不依赖外部编辑器。
+	if m.deps.Remote != nil {
+		keys = "r 改名  d 删除  " + keys
 	}
 	return keys
 }

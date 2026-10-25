@@ -173,6 +173,26 @@ def main():
         tui.pump(0.4)
         check("Esc 取消搜索", "q 退出" in tui.screen())
 
+        # 改名：r 打开输入框，Esc 取消（不改数据）
+        tui.clear()
+        tui.send(b"r")
+        renaming = tui.screen()
+        check("按 r 打开标题输入框", "标题:" in renaming, repr(renaming[-160:]))
+        tui.clear()
+        tui.send(b"\x1b")
+        tui.pump(0.4)
+        check("Esc 取消改名回到列表", "q 退出" in tui.screen())
+
+        # 删除：d 打开确认，n 取消
+        tui.clear()
+        tui.send(b"d")
+        confirming = tui.screen()
+        check("按 d 打开删除确认", "删除「" in confirming, repr(confirming[-160:]))
+        tui.clear()
+        tui.send(b"n")
+        tui.pump(0.4)
+        check("按 n 取消删除", "q 退出" in tui.screen())
+
         # 自动同步
         tui.clear()
         tui.send(b"s", settle=1.5)

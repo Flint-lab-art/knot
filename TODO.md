@@ -86,6 +86,7 @@
 - [x] `views/list.go` / `detail.go` / `editor.go` / `tagpanel.go`（合并为 `views/views.go`：List / Detail / StatusBar / TagPanel；`editor.go` 不适用——编辑交给外部编辑器）
 - [x] `statusbar.go`：同步状态、当前标签、快捷键（`views.StatusBar`）
 - [x] 快捷键：`/` 搜索、`t` 标签、`s` 同步、`q` 退出（另加 `j/k/g/G` 导航、`Esc` 清筛选）
+- [x] `r` 改标题、`d` 删除（带确认）、`e` 编辑（外部编辑器）
 - [x] 窄终端（< 100 列）自动单栏
 - [x] 手测：浏览、搜索、编辑保存、同步
   - TUI 内 `e` 通过 `tea.ExecProcess` 挂起界面、起 `knot edit` 子进程、退出后恢复
