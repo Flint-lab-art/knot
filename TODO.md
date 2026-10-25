@@ -28,15 +28,20 @@
 
 ## 阶段 2：数据层
 
-- [ ] `migrations/pg/0001_init.sql`：`tags` / `notes`（含 `version`、`visibility`）/ `note_tags` + 索引
-- [ ] `migrations/sqlite/0001_init.sql`：`note_meta` / `tag_meta` / `note_tag_meta` / `note_content_cache` / `sync_state`
+- [x] `migrations/pg/0001_init.sql`：`tags` / `notes`（含 `version`、`visibility`）/ `note_tags` + 索引
+- [x] `migrations/sqlite/0001_init.sql`：`note_meta` / `tag_meta` / `note_tag_meta` / `note_content_cache` / `sync_state`
+- [x] `migrations/pg/0002_trgm_index.sql`：`title` / `raw_md` 的 gin trigram 索引（依赖 `pg_trgm`，扩展由 `make db-setup` / 部署步骤安装）
+- [x] `migrations/migrations.go`：统一 `//go:embed` 两套迁移（`..` 路径在 embed 里非法）
 - [ ] `sqlc.yaml` 配置，`internal/store/pg/queries/notes.sql`、`tags.sql`、`sync.sql`
 - [ ] `make sqlc` 生成代码到 `internal/store/pg/sqlcgen/`
-- [ ] `internal/store/pg/store.go`：`Migrate`、`New`、CRUD 方法（包装 sqlcgen）
-- [ ] `internal/store/sqlite/store.go`：`Migrate`、`New`、对账事务方法
-- [ ] `cmd/knot-server` 加 `migrate` 子命令，`//go:embed migrations/pg/*.sql`
-- [ ] SQLite `:memory:` 建表、级联删除、回滚测试
-- [ ] 本地 PG 跑 `knot-server migrate` 成功
+- [ ] `internal/store/pg/store.go`：CRUD 方法（`Open` / `Migrate` / `Pool` / `Ping` 已完成；`sort_ord` 与 `updated_at` 列待定）
+- [ ] `internal/store/sqlite/store.go`：对账事务方法（`Open` / `Migrate` / `Close` 已完成）
+- [x] `cmd/knot-server` 加 `migrate` 子命令，迁移 `//go:embed`
+- [x] `internal/config.LoadServer`：TOML + `KNOT_PG_DSN` / `KNOT_LISTEN` 覆盖（客户端 `LoadClient` 属阶段 5）
+- [x] SQLite `:memory:` 建表、级联删除、回滚测试
+- [x] 本地 PG 跑 `knot-server migrate` 成功（`make db-setup`；顺带修了 `docs/DEPLOYMENT.md` 的 `migrate -config` 写法）
+- [ ] `internal/config` 单测：TOML 解析、环境变量覆盖优先级
+- [ ] `internal/store/pg` 集成测试：`testing.Short()` 跳过，验证全部迁移 up + 触发器/约束
 
 ## 阶段 3：服务端 API
 
