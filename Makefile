@@ -25,7 +25,7 @@ C_BLUE  := \033[34m
 .PHONY: help
 help: ## 显示所有目标
 	@printf "$(C_BLUE)Knot Makefile$(C_RESET)\n\n"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| sort \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  $(C_GREEN)%-20s$(C_RESET) %s\n", $$1, $$2}'
 
@@ -40,7 +40,7 @@ setup: ## 安装 Go 依赖与构建工具（调 scripts/dev-setup.sh）
 tools: ## 仅安装构建工具（sqlc/goose/golangci-lint）
 	@GOPROXY=$(GOPROXY) $(GO) install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 	@GOPROXY=$(GOPROXY) $(GO) install github.com/pressly/goose/v3/cmd/goose@latest
-	@GOPROXY=$(GOPROXY) $(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@GOPROXY=$(GOPROXY) $(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 
 .PHONY: tidy
 tidy: ## go mod tidy
@@ -52,9 +52,26 @@ hooks: ## 启用仓库内 git hooks（core.hooksPath=.githooks）
 	@chmod +x .githooks/* 2>/dev/null || true
 	@echo "✓ core.hooksPath=$$(git config core.hooksPath)（pre-commit 会执行 make check）"
 
+.PHONY: backup
+backup: ## 备份 PG 到 BACKUP_DIR（需 PG_DSN 环境变量）
+	@bash scripts/backup.sh
+
+.PHONY: db-setup
+db-setup: ## 本地 PG 建库 + 装 pg_trgm + 跑迁移（调 scripts/db-setup.sh）
+	@bash scripts/db-setup.sh
+
+.PHONY: sqlc-schema
+sqlc-schema: ## 由 migrations/pg 生成 sqlc 专用 schema.sql
+	@bash scripts/sqlc-schema.sh
+
+.PHONY: sqlc-check-schema
+sqlc-check-schema: ## 校验 sqlcgen/schema.sql 与迁移一致（pre-commit 调用）
+	@bash scripts/sqlc-schema.sh --check
+
 .PHONY: sqlc
-sqlc: ## 生成 sqlc 代码
+sqlc: ## 生成 sqlc 代码（先同步 schema）
 	@command -v sqlc >/dev/null 2>&1 || { echo "✗ 先执行 make tools"; exit 1; }
+	@bash scripts/sqlc-schema.sh
 	sqlc generate
 
 # ---------- 启动 ----------
@@ -78,6 +95,15 @@ test: ## 运行测试（含 race）
 .PHONY: test-short
 test-short: ## 跳过集成测试
 	$(GO) test -short -count=1 ./...
+
+.PHONY: e2e
+e2e: ## 本地真实 PG 端到端验收（建临时库，跑完自动清理）
+	@bash scripts/e2e-local.sh
+
+.PHONY: e2e-web
+e2e-web: ## 前端 api 层连真实后端（需先起 knot-server，KNOT_WEB_E2E_BASE 指定地址）
+	@if [ -z "$(KNOT_WEB_E2E_BASE)" ]; then echo "✗ 用法: make e2e-web KNOT_WEB_E2E_BASE=http://127.0.0.1:8080"; exit 1; fi
+	cd web && KNOT_WEB_E2E_BASE=$(KNOT_WEB_E2E_BASE) pnpm test:unit -- --run src/api/__tests__/integration.spec.ts
 
 .PHONY: cover
 cover: ## 生成覆盖率报告
@@ -131,6 +157,12 @@ dist: web-build build-server ## 打部署包：二进制 + web/dist + 配置模�
 	@if [ -f config.example.toml ]; then cp config.example.toml $(BIN_DIR)/dist/config.toml; fi
 	@tar -C $(BIN_DIR) -czf $(BIN_DIR)/knot-deploy.tar.gz dist
 	@echo "✓ $(BIN_DIR)/knot-deploy.tar.gz"
+
+# ---------- 部署 ----------
+.PHONY: deploy
+deploy: ## 在服务器上安装/升级部署包（需 root，参数 DEPLOY_PKG=...）
+	@if [ -z "$(DEPLOY_PKG)" ]; then echo "✗ 用法: make deploy DEPLOY_PKG=/tmp/knot-deploy.tar.gz"; exit 1; fi
+	@bash scripts/deploy.sh "$(DEPLOY_PKG)"
 
 # ---------- 清理 ----------
 .PHONY: clean

@@ -5,6 +5,7 @@
 #
 # 加载顺序：默认值 → 配置文件 → 环境变量覆盖
 #   KNOT_SERVER_URL、KNOT_TOKEN 覆盖同名字段
+#   服务端另有 KNOT_PG_DSN、KNOT_LISTEN
 #
 # 本文件不含真实 token；config.toml 已被 .gitignore 忽略，切勿提交。
 
@@ -20,11 +21,12 @@ token = "change-me"
 # ---------- 服务端 ----------
 
 # 监听地址。生产环境只监听本机，由 Caddy 反代，不直接暴露公网
+# 环境变量 KNOT_LISTEN 可覆盖
 listen = "127.0.0.1:8080"
 
 # PostgreSQL 连接串（服务端唯一真值源）
-# 需要 Postgres 16，并 CREATE EXTENSION pg_trgm
-# 推荐给公开接口单独配置只读角色，见 docs/SECURITY.md
+# 需要 Postgres 16，并 CREATE EXTENSION pg_trgm（本地 make db-setup 会装）
+# 环境变量 KNOT_PG_DSN 可覆盖；推荐给公开接口单独配置只读角色，见 docs/SECURITY.md
 pg_dsn = "postgres://knot:password@127.0.0.1:5432/knot?sslmode=disable"
 
 # 请求体大小上限（字节），默认 8 MiB

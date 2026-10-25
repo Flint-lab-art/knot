@@ -4,6 +4,7 @@ import js from '@eslint/js'
 import pluginVue from 'eslint-plugin-vue'
 import pluginVitest from '@vitest/eslint-plugin'
 import pluginOxlint from 'eslint-plugin-oxlint'
+import tseslint from 'typescript-eslint'
 import skipFormatting from 'eslint-config-prettier/flat'
 
 export default defineConfig([
@@ -28,6 +29,8 @@ export default defineConfig([
   },
 
   js.configs.recommended,
+  // .ts / .vue 里的 TypeScript 语法需要解析器；不引入会报 "Unexpected token"。
+  ...tseslint.configs.recommended.map((c) => ({ ...c, files: ['**/*.{ts,mts,tsx,vue}'] })),
   ...pluginVue.configs['flat/essential'],
 
   {

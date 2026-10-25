@@ -1,0 +1,40 @@
+# deploy/knot-server.service —— systemd unit（docs/DEPLOYMENT.md）
+
+[Unit]
+Description=Knot Server
+Documentation=file:///opt/knot/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=knot
+Group=knot
+WorkingDirectory=/opt/knot
+# 用双横线：单横线 -config 会被 cobra 当成 -c onfig。
+ExecStart=/opt/knot/knot-server --config /opt/knot/config.toml
+Restart=on-failure
+RestartSec=5
+
+# 加固（docs/SECURITY.md）
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+ReadWritePaths=/opt/knot/data
+
+# 日志走 journald
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

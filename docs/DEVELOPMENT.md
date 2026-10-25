@@ -22,7 +22,7 @@
 
 - `github.com/sqlc-dev/sqlc/cmd/sqlc`
 - `github.com/pressly/goose/v3/cmd/goose`
-- `github.com/golangci/golangci-lint/cmd/golangci-lint`
+- `github.com/golangci/golangci-lint/v2/cmd/golangci-lint`（v1 的 `v1.64.8` 是最后支持旧版，无法解析 Go 1.27 的导出数据，必须用 v2）
 
 ### 外部
 
@@ -36,7 +36,28 @@
 | 脚本 | 作用 |
 |---|---|
 | `scripts/dev-setup.sh` | 检查 Go 版本、`go mod init`、拉运行时依赖、装构建工具、`go mod tidy` |
+| `scripts/db-setup.sh` | 本地 PG 建库 + `CREATE EXTENSION pg_trgm` + `knot-server migrate`，幂等 |
+| `scripts/sqlc-schema.sh` | 把 `migrations/pg/*.sql` 的 Up 段落拼成 sqlc 用的 `internal/store/pg/sqlcgen/schema.sql`；`--check` 只校验是否最新 |
 | `scripts/web-build.sh` | 校验 node/pnpm、`pnpm install --frozen-lockfile`（无 lock 时 fallback `pnpm install`，CI 下禁止 fallback）、`pnpm run build`、校验 `dist/index.html` |
+| `scripts/deploy.sh` | 服务器上安装/升级：校验包 → 备份 → 装文件 → 迁移 → 重启 → healthz 冒烟，失败自动回滚二进制 |
+| `scripts/backup.sh` | `pg_dump -Fc` + `pg_restore -l` 校验 + 保留 N 份；供 cron 调用 |
+| `scripts/e2e-local.sh` | 本地真实 PG 端到端验收：119 项断言，建临时库跑完自动清理 |
+| `scripts/e2e-tui.py` | PTY 驱动 TUI：双栏/单栏、标签面板、搜索、同步、退出 |
+
+### sqlc 与迁移的 schema 同步
+
+sqlc 的 schema 解析器处理不了 goose 的 `-- +goose Up/Down` 混排，因此 `sqlc.yaml` 指向
+`internal/store/pg/sqlcgen/schema.sql` —— 一份由 `scripts/sqlc-schema.sh` 从迁移自动拼接的
+纯 DDL 副本。**该文件禁止手改**：
+
+```sh
+make sqlc-schema        # 改完 migrations/pg/*.sql 后重新生成
+make sqlc               # 先同步 schema，再 sqlc generate
+make sqlc-check-schema  # 只校验副本是否过期（pre-commit 在迁移变更时自动跑）
+```
+
+改迁移却忘了重跑会让 store 代码与真实表结构漂移，所以 pre-commit 在检测到
+`migrations/pg/` 有暂存改动时会拒绝提交过期副本。
 
 ## Makefile 目标
 
@@ -44,9 +65,12 @@
 |---|---|
 | `setup` | 调 `dev-setup.sh`，末尾执行 `make hooks` 启用 git hooks |
 | `hooks` | `core.hooksPath=.githooks`，启用 pre-commit（`make check`） |
+| `db-setup` | 本地 PG 建库 + 装 `pg_trgm` + 跑迁移（调 `scripts/db-setup.sh`） |
 | `tools` | 只装 sqlc/goose/golangci-lint |
 | `tidy` | `go mod tidy` |
-| `sqlc` | `sqlc generate` |
+| `sqlc` | 先同步 schema 副本，再 `sqlc generate` |
+| `sqlc-schema` | 由迁移生成 `sqlcgen/schema.sql` |
+| `sqlc-check-schema` | 校验 schema 副本与迁移一致（pre-commit 用） |
 | `run-server` | `go run ./cmd/knot-server` |
 | `run` | `go run ./cmd/knot tui` |
 | `web-dev` | `cd web && pnpm run dev` |
@@ -64,6 +88,10 @@
 | `clean` | 清 `bin/` + 测试结果 |
 | `clean-web` | 清 `web/dist` |
 | `clean-deps` | 删 `go.mod/go.sum` + 清模块与构建缓存 |
+| `e2e` | 本地真实 PG 端到端验收（调 `scripts/e2e-local.sh`） |
+| `e2e-web` | 前端 api 层连真实后端（需 `KNOT_WEB_E2E_BASE`） |
+| `backup` | 调 `scripts/backup.sh`（需 `PG_DSN`） |
+| `deploy` | 调 `scripts/deploy.sh "$(DEPLOY_PKG)"`（需 root） |
 
 ## 交叉编译
 
@@ -76,10 +104,61 @@
 | 包 | 测试内容 |
 |---|---|
 | `internal/reconcile` | 快照 diff 纯函数，最高价值 |
-| `internal/store/sqlite` | `:memory:` SQLite，事务、级联删除 |
-| `internal/store/pg` | 本地 PG 或 testcontainers，事务、pg_trgm |
+| `internal/store/sqlite` | `:memory:` SQLite，迁移建表、外键级联、事务回滚（不需要外部服务，随 `make test` 跑） |
+| `internal/store/pg` | 本地 PG 或 testcontainers，事务、pg_trgm（需外部服务，`testing.Short()` 跳过） |
 | `internal/server/handler` | `httptest` + mock store，路由、鉴权 |
 | `web/` | Vitest：API 封装、筛选逻辑、**Markdown sanitize** |
+
+### 端到端验收（推荐在提交前跑）
+
+单元测试与集成测试都用 mock 或临时 schema，覆盖不到「真实进程 + 真实库 + 真实 HTTP」
+的组合。改完服务端、CLI 或本地缓存后，跑一次：
+
+```sh
+make e2e        # 约 20 秒
+```
+
+`scripts/e2e-local.sh` 会：
+
+1. 建临时库 `knot_e2e_<ts>_<rand>`、装 `pg_trgm`、跑迁移，验证重复迁移幂等与表结构；
+2. 起真实 `knot-server`，验证鉴权、错误码、分页游标、413、405、快照无正文；
+3. 用真实 `knot` CLI 跑新建/列表/查看/编辑/标签/搜索/删除/同步/缓存，
+   包括「无变化不提交」「仅空白差异不提交」「编辑期间并发修改 → 409」；
+4. 验证公开接口隔离（私密 404、标签不过滤）、限流 429 + `Retry-After`、
+   伪造 `X-Forwarded-For` 无效；
+5. 备份、`pg_restore` 恢复演练、轮转；
+6. 用 Python 逐条比对服务端快照与本地缓存是否一致。
+
+结束（含失败）自动删库与临时目录。可用 `PORT=` 换端口、`PG_ADMIN_DSN=` 换连接。
+
+TUI 的交互另有一份 PTY 驱动脚本（需要已配置好的 client.toml 与服务端）：
+
+```sh
+python3 scripts/e2e-tui.py --knot ./bin/knot --config ~/.config/knot/config.toml
+```
+
+前端 api 层可以直连真实后端跑（默认跳过，不拖慢 `pnpm test`）：
+
+```sh
+make run-server &
+make e2e-web KNOT_WEB_E2E_BASE=http://127.0.0.1:8080
+```
+
+### PG 集成测试
+
+`internal/store/pg/store_integration_test.go` 带 `integration` build tag 且需要 `KNOT_TEST_PG_DSN`，
+两者缺一就跳过，所以 `make test` / `make check` 不依赖 PG：
+
+```sh
+KNOT_TEST_PG_DSN='postgres://postgres@/postgres?host=/run/postgresql&sslmode=disable' \
+  go test -tags=integration -count=1 ./internal/store/pg/
+```
+
+- DSN 必须是能 `CREATE SCHEMA` 的管理库；每个用例建独立的 `knot_test_<random>` schema，
+  结束时 `DROP SCHEMA ... CASCADE`，不会碰业务库。
+- 用例会在临时 schema 里装 `pg_trgm`（0002 依赖）；用无权限角色跑时请先由管理员把扩展装到库里。
+- 覆盖：全部迁移 up → down → up、CHECK/唯一约束、两级级联删除、`base_version` 409、
+  公开接口可见性过滤、游标翻页、标签重命名/解绑、快照不含正文。
 
 ## 提交前
 

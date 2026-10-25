@@ -9,6 +9,56 @@
 - 公开接口：无 token，仅 `visibility='public'`。
 - token 存 `~/.config/knot/config.toml`，权限 600；支持 `KNOT_TOKEN` 环境变量覆盖。
 
+### token 怎么生成
+
+Knot **不内置 token 签发功能**：token 是一个你自己定的任意字符串，服务端只做
+`subtle.ConstantTimeCompare` 全等比较。所以「生成」=「造一个足够随机的串」，
+两端（`knot-server` 与 `knot` CLI）填**同一个值**即可。
+
+要求：
+
+| 项 | 说明 |
+|---|---|
+| 长度 | 至少 32 字节熵（下面命令产出的都远超此值） |
+| 字符集 | 任意；建议只含 `[A-Za-z0-9_-]`，避免 TOML 转义与环境变量的 shell 转义问题 |
+| 唯一性 | 每套部署（生产/测试/本地）用不同 token，别复用 |
+| 保管 | 只放 `config.toml`（600）或环境变量；**不进 dotfiles 仓库、不进 systemd 参数、不进日志** |
+
+```sh
+# 推荐：32 字节随机 → 64 位十六进制
+openssl rand -hex 32
+
+# 没有 openssl：
+head -c 32 /dev/urandom | base64 | tr -d '\n=' | tr '+/' '-_'
+
+# 或者用 python：
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+生成后：
+
+```toml
+# 服务端 /opt/knot/config.toml 与客户端 ~/.config/knot/config.toml 填同一个值
+token = "把上面生成的串粘这里"
+```
+
+验证：
+
+```sh
+# 正确 → 200
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/tags
+# 不带 / 错误 → 401
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/api/tags
+```
+
+**token 为空时服务照常启动**（公开站点可用），但所有私有接口一律 401，
+启动日志有一条 warn。没有默认 token：默认值等于零鉴权。
+
+**更换 token**：改两端配置并重启 `knot-server`；旧 token 立即失效，无需迁移数据。
+
+**不要用**：`knot`、`changeme`、`test`、你记得住的短语、UUID（v4 有 122 位随机，
+够用但格式可预测性更强，仍不如 32 字节随机串）。
+
 ## 公开/私密隔离
 
 - `notes.visibility` 字段，默认 `private`；MVP 枚举 `private / public`，`unlisted` 保留二期。

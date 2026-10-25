@@ -1,23 +1,21 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import HomeView from '../views/HomeView.vue'
 
+import NoteDetail from '@/views/NoteDetail.vue'
+import NoteList from '@/views/NoteList.vue'
+import NotFound from '@/views/NotFound.vue'
+
+// 路由与 docs/WEB.md 一致：/、/notes/:id、兜底 404。
+// 用 createWebHistory，生产由 Caddy 的 SPA fallback 支持。
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
-    {
-      path: '/',
-      name: 'home',
-      component: HomeView,
-    },
-    {
-      path: '/about',
-      name: 'about',
-      // route level code-splitting
-      // this generates a separate chunk (About.[hash].js) for this route
-      // which is lazy-loaded when the route is visited.
-      component: () => import('../views/AboutView.vue'),
-    },
+    { path: '/', name: 'home', component: NoteList },
+    { path: '/notes/:id', name: 'note', component: NoteDetail },
+    { path: '/:pathMatch(.*)*', name: 'notfound', component: NotFound },
   ],
+  scrollBehavior(_to, _from, saved) {
+    return saved ?? { top: 0 }
+  },
 })
 
 export default router

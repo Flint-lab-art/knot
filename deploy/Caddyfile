@@ -1,0 +1,55 @@
+# deploy/Caddyfile —— Knot 的生产反代与静态托管
+#
+# 用法：
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+#   sudo sed -i 's/knot.example.com/你的域名/' /etc/caddy/Caddyfile
+#   sudo caddy validate --config /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+#
+# 安全头与 docs/SECURITY.md「部署层」一致。修改任一项都要同步文档。
+
+{
+	email you@example.com
+}
+
+knot.example.com {
+	encode zstd gzip
+
+	# /healthz 不对外暴露（docs/DEPLOYMENT.md）：只允许本机访问。
+	@healthz path /healthz
+	respond @healthz 404
+
+	# API 必须排在静态资源之前。
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	# SPA：先找文件，找不到回 index.html（Vue Router history 模式）。
+	handle {
+		root * /opt/knot/web
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		# inline style 是 Vue scoped 样式与 web 字体的需要；脚本仍只允许同源。
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+		-Server
+	}
+
+	# 静态资源长缓存；index.html 不缓存，保证发版即生效。
+	@static path /assets/*
+	header @static Cache-Control "public, max-age=31536000, immutable"
+
+	log {
+		output file /var/log/caddy/knot.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+		format json
+	}
+}

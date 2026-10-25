@@ -203,6 +203,19 @@ font-family: "Inter Variable", "Noto Sans CJK SC",
 
 **降级方案**（不自托管时）：纯系统字体栈 `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`。苹果设备体验最佳，其他平台回退系统 UI 字体。
 
+### 构建产物体积（实测，2026-10）
+
+| 项 | 大小 | 说明 |
+|---|---|---|
+| `web/dist` 总计 | ~35 MB | 主要是 CJK 字体子集（774 个 woff2） |
+| 首屏实际下载（含中文） | ~580 KB（18 个子集） | 浏览器按 `unicode-range` 只取命中的子集 |
+| JS | ~225 KB（gzip ~90 KB） | 单 chunk，无代码分割 |
+| CSS | ~571 KB（gzip ~227 KB） | 含全部 `@font-face` 声明 |
+
+字体文件多但**不会被全部请求**：`unicode-range` 让浏览器按页面实际出现的字符挑子集。
+代价是部署包较大（`make dist` 约 37 MB）与磁盘占用，换来跨平台一致的排版。
+要压缩体积可改为只引简体常用子集，但需手工维护字符集，MVP 不做。
+
 ## 数据层
 
 ```text
@@ -239,6 +252,18 @@ export function useNotes() { ... }
   - 正常 GFM（表格、代码块、任务列表）不被误伤。
 
 这一组测试比 API 封装测试价值更高，是公开站的 XSS 底线。
+
+实现细节（阶段 7）：
+
+- 两层防御各自独立：`markdown-it` 用 `html: false` 把原始标签**转义**成文本，
+  `DOMPurify` 再兜一层。任何一层失效，另一层仍能拦住。
+- 链接在渲染阶段就检查协议：`javascript:` / `vbscript:` / `data:` 不生成 `<a>`
+  （`isUnsafeHref`），外链自动加 `rel="noopener noreferrer"` 与 `target="_blank"`。
+- 安全断言一律看 **DOM 有没有可执行节点**，而不是字符串里有没有关键字：
+  转义后的 `&lt;script&gt;alert(1)&lt;/script&gt;` 作为可见文本出现是无害的。
+- 任务列表**不引插件**：`- [x]` 降级成普通列表项（复选框属于原始 HTML，
+  与 `html: false` 冲突）。要支持需引额外依赖，MVP 不做。
+- `MarkdownView.vue` 是全项目唯一使用 `v-html` 的位置，已加 eslint 注释说明。
 
 ## 构建与开发
 

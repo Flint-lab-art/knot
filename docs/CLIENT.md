@@ -4,10 +4,11 @@
 
 | 子命令 | 作用 |
 |---|---|
-| `knot tui` | 交互式 TUI 主界面 |
+| `knot`（不带子命令） | **直接进入 TUI**——TUI 是主力入口 |
+| `knot tui` | 同上（显式写法，脚本里可用） |
 | `knot new` | 新建笔记，`--title` / `--tags` / `--visibility` |
 | `knot edit [selector]` | 编辑（懒加载正文，归一化 hash 比对后提交） |
-| `knot show [selector]` | 终端预览 markdown，`--render` 渲染 |
+| `knot show [selector]` | 终端预览 markdown；离线时读本地缓存 |
 | `knot rm [selector]` | 删除，`-y` 跳过确认 |
 | `knot list` | 列出笔记，`--tag` / `--short` / `--json` |
 | `knot search` | 服务端 pg_trgm 全文检索 |
@@ -21,6 +22,13 @@
 不传参数 → 唤起 fzf 选择面板；关键词 → 模糊匹配标题；完整 UUID → 精准定位（`--exact` 强制精确）。
 
 MVP 用 `github.com/ktr0731/go-fuzzyfinder`，单二进制无外部依赖；二期检测系统 `fzf` 优先调用，否则 fallback。
+
+当前实现（阶段 5 落地）：
+
+- **完整 UUID**：直接 `GET /api/notes/:id`，不依赖本地缓存；
+- **关键词**：在本地缓存里做**不区分大小写的子串匹配**；匹配到 1 条才执行，
+  0 条提示「先跑 `knot sync`？」，多条则报错并列出候选（避免误删/误覆盖）；
+- 交互式 fzf 面板与 `--exact` 留到二期，命令里暂时没有这两个入口。
 
 ## TUI 布局
 
@@ -43,6 +51,27 @@ MVP 用 `github.com/ktr0731/go-fuzzyfinder`，单二进制无外部依赖；二�
 - 右栏顶部 tab：`正文` / `编辑` / `LLM 会话`（二期）。
 - 二期 LLM 面板：右栏 tab 切换，调用 `POST /api/llm/chat`，**DeepSeek API Key 只存服务端**，不经过客户端。
 
+实际实现（阶段 6）：
+
+- 列表读**本地缓存**（秒开），正文按选中项懒加载；启动时后台同步一次，`s` 手动触发。
+- 快捷键：`j/k` 或 `↑/↓` 移动、`g/G` 首尾、`/` 搜索（本地标题子串，回车生效）、
+  `t` 标签面板（`↑/↓` + 回车筛选）、`Esc` 清除筛选/关闭面板、`s` 同步、`q` 退出。
+- `r` **改标题**：底部输入框预填当前标题，回车提交、Esc 取消。
+  只改标题时**必须带上当前正文**（PUT 是整篇覆盖语义），否则会把内容清空；
+  实现里先 `GET` 拿最新正文与 version，再原样回传，顺带避免无谓的 409。
+- `d` **删除**：底部显示「删除「标题」？y 确认 n 取消」，只有 `y`/`Enter` 才执行。
+  删除后从列表移除、光标落到相邻条目，再重新加载列表保持与服务端一致。
+- 三个写操作（`e` 编辑、`r` 改名、`d` 删除）都按能力显示：没有编辑器时不出现
+  `e 编辑`；`Remote` 为空时不出现 `r 改名` / `d 删除`。
+- 全文检索走服务端 `knot search`；TUI 内搜索刻意只查本地，避免每敲一个字打一次 API。
+- **编辑**：选中笔记按 `e`，TUI 通过 `tea.ExecProcess` 把终端交给外部编辑器
+  （`[editor].command`），退出后回到列表并显示「已保存」。底层起的是
+  `knot edit <id>` 子进程，与命令行编辑**共用同一套逻辑**（拉正文 → 临时文件 →
+  归一化 → PUT 带 base_version），所以冲突处理、临时文件保留等行为完全一致。
+- 没有配置编辑器（`Deps.Edit` 为空）时，`e` 会提示「当前笔记不可编辑」，
+  且状态栏与空正文提示都**不显示** `e 编辑` —— 不显示一个按了没反应的键。
+- 正文里显示的是原始 Markdown（不做 glamour 渲染），保证与编辑内容一致。
+
 ## 编辑与懒加载流程
 
 ```text
@@ -64,6 +93,40 @@ knot edit <selector>
 
 - 外部编辑器无侵入，nvim 只是打开临时文件的进程，不依赖保存回调。
 - 归一化 hash 避免空白/换行误判导致的空提交。
+
+实际实现补充：
+
+- 正文**总是**从服务端拉（不用本地缓存），避免用过期正文覆盖远端；
+- 归一化 = `\r\n`/`\r` → `\n`、去掉每行行尾空白、去掉末尾多余空行后再补一个 `\n`；
+- 编辑器非 0 退出、读回失败、PUT 失败（含 409）都会**保留临时文件**，
+  错误信息里给出路径；成功或「无变化」才删除。
+- `editor.args` 会拼在文件名之前，便于传 `--cmd "set ft=markdown"` 之类的参数。
+
+**409 的触发条件**：`base_version` 来自第 2 步 GET 的返回值，所以
+
+- 「别人先改了，我随后才 `knot edit`」→ **不冲突**：GET 拿到的是最新正文与最新版本，
+  等于在别人改动的基础上继续编辑（符合直觉，也避免了每次都要重新拉取）；
+- 「编辑器打开期间别人改了」→ **冲突 409**：PUT 时版本已变，本次改动不提交，
+  临时文件保留供人工合并。
+
+换句话说，409 保护的是「我正在编辑的这段时间」，而不是「我来之前」。
+
+## show 的离线行为
+
+`knot show` **网络优先、失败回落缓存**（`docs/SYNC_CACHE.md` 要求断网可读已缓存笔记）：
+
+```text
+knot show <selector>
+  1. 正常路径：GET /api/notes/:id → 刷新 note_content_cache → 输出
+  2. 连不上服务端（NetworkError）→ 读本地 note_meta + note_content_cache，
+     在 stderr 先打一行「⚠ 连不上服务端，显示的是本地缓存（可能不是最新）」
+  3. 连不上且本地没有正文缓存 → 报错并提示补救办法（先 sync，再 show 一次）
+  4. 4xx（如 404）不回落到缓存：这是服务端的确定答案，
+     不能拿旧缓存掩盖「笔记已被删除」
+```
+
+正文缓存只在 `show` / `edit` 时写入，所以**新同步的笔记在第一次 `show` 之前没有正文**，
+断网时也只能看到元数据 —— 这是两级缓存的预期行为，不是 bug。
 
 ## 删除流程
 
@@ -98,10 +161,23 @@ command = "nvim"
 # path = "/custom/path/cache.db"
 ```
 
-加载顺序：默认值 → 配置文件 → 环境变量覆盖（`KNOT_SERVER_URL`、`KNOT_TOKEN`）。
+加载顺序：默认值 → 配置文件 → 环境变量覆盖（`KNOT_SERVER_URL`、`KNOT_TOKEN`；服务端另有 `KNOT_PG_DSN`、`KNOT_LISTEN`）。
 
+- 配置文件定位：`-c/--config` > `KNOT_CONFIG` > `$XDG_CONFIG_HOME/knot/config.toml`；文件不存在视为「首次使用」，不报错。
+- 缓存库定位：`--cache-db` > `[cache].path` > `$XDG_CACHE_HOME/knot/cache.db`；目录自动创建（0700）。
 - `editor.command` 加载时 `exec.LookPath` 检查，找不到明确报错。
+- 需要网络/数据库的命令才加载配置：`knot completion` 等纯本地命令不会因缺配置失败。
 - **token 不进公开 dotfiles 仓库**，dotfiles 里放 `config.toml.example`。
+
+## 服务端 CLI
+
+| 子命令 / 参数 | 作用 |
+|---|---|
+| `knot-server` | 启动 HTTP 服务 |
+| `knot-server migrate` | 执行内嵌的 PG 迁移（部署/升级时先于启动运行） |
+| `-c` / `--config` | 配置文件路径；不传则只用默认值与环境变量 |
+
+配置加载顺序同客户端：默认值 → 配置文件 → 环境变量（`KNOT_PG_DSN`、`KNOT_LISTEN`）。迁移**不**在服务启动时自动执行，避免旧实例被新 schema 卡住。
 
 ## 换机迁移
 

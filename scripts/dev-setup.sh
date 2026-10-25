@@ -68,7 +68,7 @@ echo "→ 安装构建工具到 $(go env GOPATH)/bin ..."
 TOOLS=(
   "github.com/sqlc-dev/sqlc/cmd/sqlc@latest"
   "github.com/pressly/goose/v3/cmd/goose@latest"
-  "github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+  "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
 )
 for tool in "${TOOLS[@]}"; do
   echo "  + ${tool}"
