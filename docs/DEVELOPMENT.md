@@ -39,6 +39,8 @@
 | `scripts/db-setup.sh` | 本地 PG 建库 + `CREATE EXTENSION pg_trgm` + `knot-server migrate`，幂等 |
 | `scripts/sqlc-schema.sh` | 把 `migrations/pg/*.sql` 的 Up 段落拼成 sqlc 用的 `internal/store/pg/sqlcgen/schema.sql`；`--check` 只校验是否最新 |
 | `scripts/web-build.sh` | 校验 node/pnpm、`pnpm install --frozen-lockfile`（无 lock 时 fallback `pnpm install`，CI 下禁止 fallback）、`pnpm run build`、校验 `dist/index.html` |
+| `scripts/deploy.sh` | 服务器上安装/升级：校验包 → 备份 → 装文件 → 迁移 → 重启 → healthz 冒烟，失败自动回滚二进制 |
+| `scripts/backup.sh` | `pg_dump -Fc` + `pg_restore -l` 校验 + 保留 N 份；供 cron 调用 |
 
 ### sqlc 与迁移的 schema 同步
 
@@ -84,6 +86,8 @@ make sqlc-check-schema  # 只校验副本是否过期（pre-commit 在迁移变�
 | `clean` | 清 `bin/` + 测试结果 |
 | `clean-web` | 清 `web/dist` |
 | `clean-deps` | 删 `go.mod/go.sum` + 清模块与构建缓存 |
+| `backup` | 调 `scripts/backup.sh`（需 `PG_DSN`） |
+| `deploy` | 调 `scripts/deploy.sh "$(DEPLOY_PKG)"`（需 root） |
 
 ## 交叉编译
 

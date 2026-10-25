@@ -38,98 +38,58 @@ make dist GOARCH=arm64 # arm64 服务器
 
 ## Caddyfile
 
-```caddyfile
-{
-    email you@example.com
-}
+仓库里是可直接用的模板：`deploy/Caddyfile`
 
-knot.example.com {
-    encode zstd gzip
-
-    handle /api/* {
-        reverse_proxy 127.0.0.1:8080
-    }
-
-    handle {
-        root * /opt/knot/web
-        try_files {path} /index.html
-        file_server
-    }
-
-    header {
-        X-Content-Type-Options nosniff
-        X-Frame-Options DENY
-        Referrer-Policy strict-origin-when-cross-origin
-        Permissions-Policy "geolocation=(), microphone=(), camera=()"
-        Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'"
-        -Server
-    }
-
-    log {
-        output file /var/log/caddy/knot.log {
-            roll_size 10MiB
-            roll_keep 5
-        }
-        format json
-    }
-}
+```bash
+sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+sudo sed -i 's/knot.example.com/你的域名/' /etc/caddy/Caddyfile
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
 ```
 
-`handle /api/*` 在静态 `handle` 之前。SPA fallback 靠 `try_files`。
+要点：
+
+- `handle /api/*` 必须在静态 `handle` 之前，否则会被 SPA fallback 吞掉；
+- SPA fallback 靠 `try_files {path} /index.html`；
+- `/healthz` 通过 `respond … 404` 对外隐藏（只给本机探活）；
+- `/assets/*` 加 `immutable` 长缓存，`index.html` 不缓存，发版即生效；
+- 安全头见文件顶部注释；改动需同步 `docs/SECURITY.md`。
 
 ## systemd
 
-`/etc/systemd/system/knot-server.service`：
-
-```ini
-[Unit]
-Description=Knot Server
-After=network.target
-
-[Service]
-Type=simple
-User=knot
-Group=knot
-WorkingDirectory=/opt/knot
-ExecStart=/opt/knot/knot-server -config /opt/knot/config.toml
-Restart=on-failure
-RestartSec=5
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
-ReadWritePaths=/opt/knot/data
-
-[Install]
-WantedBy=multi-user.target
-```
+仓库里是完整 unit：`deploy/knot-server.service`（含 `ProtectSystem`、`MemoryDenyWriteExecute`
+等加固项）。
 
 ```bash
+sudo cp deploy/knot-server.service /etc/systemd/system/
 sudo useradd --system --home /opt/knot --shell /usr/sbin/nologin knot
-sudo mkdir -p /opt/knot/data
+sudo mkdir -p /opt/knot/data /opt/knot/backup
 sudo chown -R knot:knot /opt/knot
 sudo systemctl daemon-reload
 sudo systemctl enable --now knot-server
 ```
+
+**参数必须用双横线**：`--config`。写成单横线 `-config` 会被 cobra 解析成 `-c onfig`
+（把 "onfig" 当成子命令）。
 
 ## 首次部署
 
 ```text
 1. 本地 make dist
 2. 上传 tar 包到服务器
-3. 建用户、建目录、解包
+3. 建用户、建目录
 4. 写 config.toml（PG DSN、token、listen=127.0.0.1:8080），chmod 600
-5. 初始化 PG：建库、CREATE EXTENSION pg_trgm、跑迁移
-6. systemctl start knot-server
+5. 初始化 PG：建库、CREATE EXTENSION pg_trgm
+6. scripts/deploy.sh 安装二进制 + 跑迁移 + 启动 + healthz 冒烟
 7. Caddy 配好、reload，验证 HTTPS
 8. 本地 knot sync，确认能拉到数据
-9. 配 pg_dump 定时备份
+9. 配 pg_dump 定时备份（scripts/backup.sh）
 ```
 
-**迁移必须在启动服务之前完成。** 用二进制自带子命令：
+**迁移必须在启动服务之前完成。** 用二进制自带子命令（`deploy.sh` 会自动执行）：
 
 ```bash
-./knot-server migrate -config /opt/knot/config.toml
+./knot-server migrate --config /opt/knot/config.toml
 ```
 
 迁移文件 `//go:embed`（仓库根 `migrations/`，`knot-server` 只打包 `pg/`），服务器不需要装 goose。
@@ -142,38 +102,60 @@ sudo -u postgres psql -d knot -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm'
 
 本地开发一条命令搞定建库、装扩展、跑迁移：`make db-setup`（幂等，可重复执行）。
 
-## 后续部署
+## 后续部署（一条命令）
 
 ```bash
-tar -xzf /tmp/knot-deploy.tar.gz -C /tmp
-sudo systemctl stop knot-server
-sudo cp /opt/knot/knot-server /opt/knot/knot-server.prev
-sudo install -m 755 /tmp/dist/knot-server /opt/knot/knot-server
-sudo rsync -a --delete /tmp/dist/web/ /opt/knot/web/
-# 如有新迁移
-sudo -u knot /opt/knot/knot-server migrate -config /opt/knot/config.toml
-sudo systemctl start knot-server
-sudo systemctl status knot-server
+sudo scripts/deploy.sh /tmp/knot-deploy.tar.gz
+sudo scripts/deploy.sh /tmp/knot-deploy.tar.gz --skip-migrate   # 无新迁移时
+# 或用 Makefile：
+make deploy DEPLOY_PKG=/tmp/knot-deploy.tar.gz
 ```
 
+`scripts/deploy.sh` 的步骤与失败处理：
+
+1. 解包并校验 `dist/knot-server` 可执行、`dist/web/index.html` 存在（坏包直接退出，不碰现有安装）；
+2. 备份当前二进制到 `knot-server.prev`；
+3. 安装二进制与 `web/`（有 rsync 用 `rsync --delete`，否则整目录替换）；
+4. 跑迁移；失败 **自动回滚二进制并重启**；
+5. 重启服务后最多等 20 秒做 `healthz` 冒烟，失败同样回滚。
+
+环境变量：`APP_DIR`（默认 `/opt/knot`）、`SERVICE`（默认 `knot-server`）、
+`HEALTH_URL`（默认 `http://127.0.0.1:8080/healthz`）。
+`SKIP_ROOT_CHECK=1` 只用于本地联调，生产不要设。
+
 ## 回滚
+
+自动回滚已覆盖迁移/启动失败；手动回滚：
 
 ```bash
 sudo mv /opt/knot/knot-server.prev /opt/knot/knot-server
 sudo systemctl restart knot-server
 ```
 
-迁移只加不删，回滚安全；删字段/改类型前先确认。
+迁移只加不删，回滚安全；删字段/改类型前先确认（`0003` 删列属于例外，
+它有对应的 down 补回列定义，但**数据不可恢复**）。
 
 ## 备份
 
 ```bash
-pg_dump -Fc "$PG_DSN" > /opt/knot/backup/knot-$(date +%F-%H%M).dump
+PG_DSN='postgres://knot@/knot?host=/run/postgresql' \
+  BACKUP_DIR=/opt/knot/backup KEEP=14 scripts/backup.sh
 ```
 
-- 部署前必做一次 `pre-deploy` 备份；
-- 定时任务每天一次，保留 N 份；
+- 先写 `.partial` 临时文件、`pg_restore -l` 校验归档可读，再 `mv` 成正式备份 ——
+  中途失败不会留下"看起来完整"的半截文件；
+- 按修改时间只保留最新 `KEEP` 份（默认 7），只删脚本产出的 `knot-*.dump`；
+- 部署前必做一次备份；定时任务每天一次；
 - 异地推送策略待定。
+
+恢复演练（每季度至少一次，不要等出事才验）：
+
+```bash
+createdb knot_restore
+psql -d knot_restore -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm'
+pg_restore --no-owner --no-privileges -d knot_restore backup/knot-YYYY-MM-DD-HHMMSS.dump
+psql -d knot_restore -c 'select count(*) from notes'
+```
 
 ## 配置权限
 

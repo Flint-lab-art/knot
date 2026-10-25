@@ -52,6 +52,10 @@ hooks: ## 启用仓库内 git hooks（core.hooksPath=.githooks）
 	@chmod +x .githooks/* 2>/dev/null || true
 	@echo "✓ core.hooksPath=$$(git config core.hooksPath)（pre-commit 会执行 make check）"
 
+.PHONY: backup
+backup: ## 备份 PG 到 BACKUP_DIR（需 PG_DSN 环境变量）
+	@bash scripts/backup.sh
+
 .PHONY: db-setup
 db-setup: ## 本地 PG 建库 + 装 pg_trgm + 跑迁移（调 scripts/db-setup.sh）
 	@bash scripts/db-setup.sh
@@ -144,6 +148,12 @@ dist: web-build build-server ## 打部署包：二进制 + web/dist + 配置模�
 	@if [ -f config.example.toml ]; then cp config.example.toml $(BIN_DIR)/dist/config.toml; fi
 	@tar -C $(BIN_DIR) -czf $(BIN_DIR)/knot-deploy.tar.gz dist
 	@echo "✓ $(BIN_DIR)/knot-deploy.tar.gz"
+
+# ---------- 部署 ----------
+.PHONY: deploy
+deploy: ## 在服务器上安装/升级部署包（需 root，参数 DEPLOY_PKG=...）
+	@if [ -z "$(DEPLOY_PKG)" ]; then echo "✗ 用法: make deploy DEPLOY_PKG=/tmp/knot-deploy.tar.gz"; exit 1; fi
+	@bash scripts/deploy.sh "$(DEPLOY_PKG)"
 
 # ---------- 清理 ----------
 .PHONY: clean

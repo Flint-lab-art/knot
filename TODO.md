@@ -115,15 +115,18 @@
 
 ## 阶段 9：部署联调
 
-- [ ] 本机 docker PG + Caddy 走一遍完整部署流程
-- [ ] 验证迁移、`/api` 反代、SPA fallback、`/healthz`
-- [ ] 上服务器：systemd + Caddy
-- [ ] 公网 HTTPS 验证
-- [ ] 公开笔记可见，私密笔记 404
-- [ ] 限流生效（429）
-- [ ] `pg_dump` 定时备份
-- [ ] `knot-server.prev` 回滚演练
-- [ ] 提交部署脚本 / 文档补充
+- [x] 本机走一遍完整部署流程（无 docker/Caddy，用 `deploy/` 模板 + 等价验证脚本）
+- [x] 验证迁移、`/api` 反代、SPA fallback、`/healthz`（隐藏返回 404）
+- [ ] 上服务器：systemd + Caddy（需要真机，仓库已备 `deploy/knot-server.service` 与 `deploy/Caddyfile`）
+- [ ] 公网 HTTPS 验证（需要域名与真服务器）
+- [x] 公开笔记可见，私密笔记 404（含经反代后不泄露正文/存在性）
+- [x] 限流生效（429 + Retry-After，反代后仍按 127.0.0.1 统一限流）
+- [x] `pg_dump` 定时备份（`scripts/backup.sh`：归档校验 + 轮转 + 真实恢复演练通过）
+- [x] `knot-server.prev` 回滚演练（坏包拒绝、迁移失败自动回滚，二进制不变）
+- [x] 提交部署脚本 / 文档补充
+
+> 阶段 9 剩余两项依赖真实公网服务器，本地无法完成；脚本与模板已就绪，
+> 部署时按 `docs/DEPLOYMENT.md` 执行即可。
 
 ## 二期（不在当前 TODO）
 
