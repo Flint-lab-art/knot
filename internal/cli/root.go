@@ -1,7 +1,3 @@
-// Package cli 装配 knot 的 Cobra 命令树。
-//
-// 约束（见 docs/ARCHITECTURE.md）：只依赖 store/sqlite 与 client，不依赖 store/pg。
-// 子命令列表见 docs/CLIENT.md。
 package cli
 
 import (
@@ -30,6 +26,8 @@ func version() string {
 
 // NewRootCmd 构造 knot 根命令。out 用于常规输出，errOut 用于错误。
 func NewRootCmd(out, errOut io.Writer) *cobra.Command {
+	a := newApp(out, errOut)
+
 	root := &cobra.Command{
 		Use:   "knot",
 		Short: "Knot —— 个人知识库的命令行入口",
@@ -38,18 +36,43 @@ func NewRootCmd(out, errOut io.Writer) *cobra.Command {
 		Version:       version(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// 全局参数在子命令执行前注入 app；子命令结束时关闭本地库。
+		PersistentPreRun: func(*cobra.Command, []string) {
+			a.configPath = a.flagConfig
+			a.cachePath = a.flagCacheDB
+		},
+		PersistentPostRun: func(*cobra.Command, []string) { a.Close() },
 	}
 	root.SetOut(out)
 	root.SetErr(errOut)
+	root.PersistentFlags().StringVarP(&a.flagConfig, "config", "c", "",
+		"配置文件路径（默认 $KNOT_CONFIG 或 ~/.config/knot/config.toml）")
+	root.PersistentFlags().StringVar(&a.flagCacheDB, "cache-db", "",
+		"本地缓存库路径（默认 [cache].path 或 ~/.cache/knot/cache.db）")
 
-	tui := &cobra.Command{
+	root.AddCommand(
+		newNoteCmd(a),
+		editCmd(a),
+		showCmd(a),
+		rmCmd(a),
+		listCmd(a),
+		searchCmd(a),
+		tagCmd(a),
+		syncCmd(a),
+		cacheCmd(a),
+		tuiCmd(a),
+	)
+	return root
+}
+
+// tuiCmd 构造 `knot tui`。
+func tuiCmd(_ *app) *cobra.Command {
+	return &cobra.Command{
 		Use:   "tui",
 		Short: "启动交互式 TUI 主界面",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Args:  cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
 			return tui.Run()
 		},
 	}
-	root.AddCommand(tui)
-
-	return root
 }

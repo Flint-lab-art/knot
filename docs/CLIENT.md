@@ -22,6 +22,13 @@
 
 MVP 用 `github.com/ktr0731/go-fuzzyfinder`，单二进制无外部依赖；二期检测系统 `fzf` 优先调用，否则 fallback。
 
+当前实现（阶段 5 落地）：
+
+- **完整 UUID**：直接 `GET /api/notes/:id`，不依赖本地缓存；
+- **关键词**：在本地缓存里做**不区分大小写的子串匹配**；匹配到 1 条才执行，
+  0 条提示「先跑 `knot sync`？」，多条则报错并列出候选（避免误删/误覆盖）；
+- 交互式 fzf 面板与 `--exact` 留到二期，命令里暂时没有这两个入口。
+
 ## TUI 布局
 
 ```text
@@ -65,6 +72,14 @@ knot edit <selector>
 - 外部编辑器无侵入，nvim 只是打开临时文件的进程，不依赖保存回调。
 - 归一化 hash 避免空白/换行误判导致的空提交。
 
+实际实现补充：
+
+- 正文**总是**从服务端拉（不用本地缓存），避免用过期正文覆盖远端；
+- 归一化 = `\r\n`/`\r` → `\n`、去掉每行行尾空白、去掉末尾多余空行后再补一个 `\n`；
+- 编辑器非 0 退出、读回失败、PUT 失败（含 409）都会**保留临时文件**，
+  错误信息里给出路径；成功或「无变化」才删除。
+- `editor.args` 会拼在文件名之前，便于传 `--cmd "set ft=markdown"` 之类的参数。
+
 ## 删除流程
 
 ```text
@@ -100,7 +115,10 @@ command = "nvim"
 
 加载顺序：默认值 → 配置文件 → 环境变量覆盖（`KNOT_SERVER_URL`、`KNOT_TOKEN`；服务端另有 `KNOT_PG_DSN`、`KNOT_LISTEN`）。
 
+- 配置文件定位：`-c/--config` > `KNOT_CONFIG` > `$XDG_CONFIG_HOME/knot/config.toml`；文件不存在视为「首次使用」，不报错。
+- 缓存库定位：`--cache-db` > `[cache].path` > `$XDG_CACHE_HOME/knot/cache.db`；目录自动创建（0700）。
 - `editor.command` 加载时 `exec.LookPath` 检查，找不到明确报错。
+- 需要网络/数据库的命令才加载配置：`knot completion` 等纯本地命令不会因缺配置失败。
 - **token 不进公开 dotfiles 仓库**，dotfiles 里放 `config.toml.example`。
 
 ## 服务端 CLI

@@ -5,8 +5,12 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/BurntSushi/toml"
 )
@@ -71,4 +75,69 @@ func LoadServer(path string) (Server, error) {
 		cfg.Token = v
 	}
 	return cfg, nil
+}
+
+// DefaultClientConfigPath 返回默认配置文件路径：$XDG_CONFIG_HOME/knot/config.toml。
+// 取不到用户配置目录时返回空串（调用方视为「没有配置文件」）。
+func DefaultClientConfigPath() string {
+	dir, err := os.UserConfigDir()
+	if err != nil || dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "knot", "config.toml")
+}
+
+// DefaultCachePath 返回默认缓存库路径：$XDG_CACHE_HOME/knot/cache.db。
+// 取不到用户缓存目录时返回空串，由调用方报错（不静默落到当前目录）。
+func DefaultCachePath() string {
+	dir, err := os.UserCacheDir()
+	if err != nil || dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "knot", "cache.db")
+}
+
+// LoadClient 读取客户端配置：默认值 → path（可为空）→ 环境变量。
+//
+// path 为空时依次尝试 KNOT_CONFIG 与默认路径；文件不存在不算错误（首次使用）。
+// 环境变量 KNOT_SERVER_URL / KNOT_TOKEN 覆盖同名字段。
+// editor.command 会做 LookPath 校验，找不到时返回错误而不是等到编辑时才失败 ——
+// 但仅当配置里显式指定了命令；默认的 nvim 在无 GUI/终端环境缺失时也报错，
+// 因为此时 `knot edit` 根本无法工作。
+func LoadClient(path string) (Client, error) {
+	cfg := DefaultClient()
+	if path == "" {
+		path = os.Getenv("KNOT_CONFIG")
+	}
+	if path == "" {
+		path = DefaultClientConfigPath()
+	}
+	if path != "" {
+		if _, err := toml.DecodeFile(path, &cfg); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return Client{}, fmt.Errorf("读取配置 %s: %w", path, err)
+		}
+	}
+	if v := os.Getenv("KNOT_SERVER_URL"); v != "" {
+		cfg.ServerURL = v
+	}
+	if v := os.Getenv("KNOT_TOKEN"); v != "" {
+		cfg.Token = v
+	}
+	// 注意：环境变量可以只覆盖其一，另一个仍可来自文件。
+
+	if cfg.Editor.Command == "" {
+		return Client{}, fmt.Errorf("未配置 editor.command")
+	}
+	if _, err := exec.LookPath(cfg.Editor.Command); err != nil {
+		return Client{}, fmt.Errorf("editor.command %q 不可执行: %w", cfg.Editor.Command, err)
+	}
+	return cfg, nil
+}
+
+// CacheDBPath 返回实际使用的缓存库路径：配置值优先，否则用默认路径。
+func (c Client) CacheDBPath() string {
+	if c.Cache.Path != "" {
+		return c.Cache.Path
+	}
+	return DefaultCachePath()
 }

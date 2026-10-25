@@ -71,14 +71,14 @@
 
 ## 阶段 5：CLI
 
-- [ ] `internal/config/config.go`：TOML + 环境变量覆盖，`editor.command` 做 `LookPath`
-- [ ] `internal/cli/root.go`：Cobra 根命令
-- [ ] `new.go` / `edit.go` / `show.go` / `rm.go` / `list.go`
-- [ ] `search.go` / `tag.go` / `sync.go` / `cache.go` / `completion.go`
-- [ ] `cmd/knot/main.go` 装配
-- [ ] `edit` 流程：懒加载 → 临时文件 → 编辑器 → 归一化 hash → PUT
-- [ ] `rm` 流程：DELETE → 本地事务删三张表
-- [ ] 全链路手测：`new → list → show → edit → rm → sync`
+- [x] `internal/config/config.go`：TOML + 环境变量覆盖，`editor.command` 做 `LookPath`
+- [x] `internal/cli/root.go`：Cobra 根命令
+- [x] `new.go` / `edit.go` / `show.go` / `rm.go` / `list.go`（`notes_cmd.go`，共用 `--tags` / `--visibility` 等参数）
+- [x] `search.go` / `tag.go` / `sync.go` / `cache.go` / `completion.go`（`tags_cmd.go` / `sync_cmd.go`；`completion` 由 cobra 自带）
+- [x] `cmd/knot/main.go` 装配
+- [x] `edit` 流程：懒加载 → 临时文件 → 编辑器 → 归一化 hash → PUT
+- [x] `rm` 流程：DELETE → 本地事务删三张表
+- [x] 全链路手测：`new → list → show → edit → rm → sync`
 
 ## 阶段 6：TUI
 
