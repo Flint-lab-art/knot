@@ -57,13 +57,18 @@ psql -U postgres -d knot_manual -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm'
 
 ### 0.3 写客户端配置
 
-CLI 需要知道服务端地址和 token：
+Knot 的 token 是**你自定义的一个随机串**，服务端和 CLI 填同一个值。
+它没有「注册/签发」流程，就是两边配置一致即可。
 
 ```sh
-mkdir -p ~/.config/knot
-cat > ~/.config/knot/config.toml <<'EOF'
+# 生成一个 token（32 字节随机 → 64 位十六进制）
+TOKEN=$(openssl rand -hex 32)
+echo "本次测试用 token: $TOKEN"
+
+mkdir -p ~/.config/knot /tmp/knot-manual
+cat > ~/.config/knot/config.toml <<EOF
 server_url = "http://127.0.0.1:8080"
-token = "manual-test-token"
+token = "$TOKEN"
 
 [editor]
 command = "nvim"
@@ -72,8 +77,14 @@ command = "nvim"
 path = "/tmp/knot-manual/cache.db"
 EOF
 chmod 600 ~/.config/knot/config.toml
-mkdir -p /tmp/knot-manual
+
+# 记下来，0.4 起服务时要用同一个值
+echo "$TOKEN" > /tmp/knot-manual/token.txt
 ```
+
+> 注意上面用的是 `<<EOF`（不带引号），这样 `$TOKEN` 会被展开。
+> 另外两种等效写法：`KNOT_TOKEN=$TOKEN` 环境变量（临时覆盖配置），
+> 或直接把 `manual-test-token` 这种固定串写进配置（只适合本地测试）。
 
 ### 0.4 起服务（**新开一个终端，保持运行**）
 
@@ -85,9 +96,10 @@ make build-server >/dev/null
 KNOT_PG_DSN='postgres://postgres@/knot_manual?host=/run/postgresql&sslmode=disable' \
   ./bin/knot-server-linux-amd64 migrate
 
-# 起服务
+# 起服务（token 用 0.3 生成的那个）
+TOKEN=$(cat /tmp/knot-manual/token.txt)
 KNOT_PG_DSN='postgres://postgres@/knot_manual?host=/run/postgresql&sslmode=disable' \
-KNOT_TOKEN=manual-test-token \
+KNOT_TOKEN="$TOKEN" \
 KNOT_LISTEN=127.0.0.1:8080 \
   ./bin/knot-server-linux-amd64
 ```
@@ -108,6 +120,15 @@ KNOT_LISTEN=127.0.0.1:8080 \
 - [ ] 终端 A 打出 `knot-server listening addr=127.0.0.1:8080`
 - [ ] `./bin/knot-server-linux-amd64 migrate` 输出「PostgreSQL 迁移完成」
 - [ ] 另开终端：`curl -s http://127.0.0.1:8080/healthz` 返回 `{"status":"ok"}`
+- [ ] token 生效：
+
+      ```sh
+      TOKEN=$(cat /tmp/knot-manual/token.txt)
+      curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN" \
+        http://127.0.0.1:8080/api/tags          # 期望 200
+      curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/api/tags
+      # 期望 401
+      ```
 
 ---
 
@@ -489,7 +510,8 @@ psql -d knot_manual -c "update notes set title='数据库改的标题' where tit
 | [ ] `./bin/knot new`（不带标题） | 提示缺标题，并给出两种写法 |
 | [ ] `./bin/knot new x --visibility secret` | 提示可选 private / public |
 | [ ] `KNOT_CONFIG=/dev/null ./bin/knot list` | 明确提示配置读取问题（不是 panic） |
-| [ ] 把 token 改成错的，`./bin/knot list` | 401 相关提示，不是空白 |
+| [ ] `KNOT_TOKEN=wrong ./bin/knot sync` | 提示 `401: invalid or missing token` |
+| [ ] `./bin/knot list`（改错 token 后） | **仍然正常** —— 它只读本地缓存，不联网，这不是 bug |
 | [ ] `./bin/knot tui </dev/null` | 提示需要交互式终端 |
 | [ ] `./bin/knot edit` 时的冲突（见下） | 提示版本冲突并保留文件 |
 
