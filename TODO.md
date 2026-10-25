@@ -61,12 +61,13 @@
 
 ## 阶段 4：客户端 HTTP + 同步对账
 
-- [ ] `internal/client/client.go`：fetch 封装、Bearer、错误码映射、429
-- [ ] `internal/client/notes.go` / `tags.go` / `sync.go`
-- [ ] `internal/reconcile/reconcile.go`：全量快照 diff 纯函数
-- [ ] `internal/reconcile/reconcile_test.go`：表驱动，覆盖删除 / 重命名 / 解绑 / 新增
-- [ ] `internal/store/sqlite` 对账事务实现
-- [ ] `go test ./internal/reconcile/` 全绿
+- [x] `internal/client/client.go`：fetch 封装、Bearer、错误码映射、429
+- [x] `internal/client/notes.go` / `tags.go` / `sync.go`（按接口分组写在 `client.go`，公开接口也一并覆盖）
+- [x] `internal/reconcile/reconcile.go`：全量快照 diff 纯函数
+- [x] `internal/reconcile/reconcile_test.go`：表驱动，覆盖删除 / 重命名 / 解绑 / 新增
+- [x] `internal/store/sqlite` 对账事务实现（`ApplySnapshot` + 本地读写 `notes.go`）
+- [x] `go test ./internal/reconcile/` 全绿
+- [x] 实库端到端验证：client 建/改/删 + 标签重命名 → sync 后本地与快照逐条一致
 
 ## 阶段 5：CLI
 

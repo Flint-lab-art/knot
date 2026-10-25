@@ -63,6 +63,22 @@ GET /api/sync/snapshot
 
 **不返回 `raw_md`**，只返回元数据。
 
+### 实现要点（`internal/reconcile` + `store/sqlite`）
+
+- `reconcile.Diff(snapshot, localNotes, localTags) Plan` 是纯函数，只算差异不碰库；
+  `sqlite.ApplySnapshot` 在一个事务里读本地 → Diff → 按序执行 → 写 `last_sync_at`，
+  任一步失败整体回滚。
+- 执行顺序固定为：标签 upsert → 解绑 → 笔记 insert/update → 笔记 delete → 标签 delete。
+  顺序有讲究：`note_tag_meta` 对 `tag_meta` 有外键，删标签必须等绑定清完。
+- **标签重命名**会让同一个 tag id 对应新名字，本地旧名字那行还在。落库时按
+  「先删同名异 id 行 → 按 id 原地改名」处理，避免 `tag_meta.id` 主键冲突。
+- **标签 id 变化**（服务端删了标签再重加）也算变更：本地旧行删除会级联清掉绑定，
+  所以该笔记会被判为 update 并重建绑定 —— 否则「名字没变但 id 换了」会静默丢标签。
+- 正文缓存不在对账范围内：笔记被删时随外键级联清掉；正文变化等 `show` / `edit`
+  懒加载刷新（`note_meta.modified_at` 变化不代表本地正文过期）。
+- 时间用 `reconcile.FormatTime`（UTC RFC3339Nano）统一格式化，对账比较与本地写入
+  必须共用它，否则时区/精度差异会被误判成「有变化」。
+
 ### 二期：change_log + seq
 
 有多写客户端时引入：
