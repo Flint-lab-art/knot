@@ -26,9 +26,13 @@ type Deps struct {
 	Now func() time.Time
 }
 
-// Cache 是本地缓存的只读视图（*sqlite.DB 满足）。
+// Cache 是本地缓存的视图（*sqlite.DB 满足）。
 type Cache interface {
 	ListNotes(ctx context.Context, tag string, limit int) ([]dto.Note, error)
+	// LoadContent 读取正文懒缓存；未缓存时 ok=false。
+	LoadContent(ctx context.Context, id uuid.UUID, now time.Time) (rawMD string, ok bool, err error)
+	// SaveContent 在成功拉到正文后写入缓存，供离线阅读。
+	SaveContent(ctx context.Context, id uuid.UUID, rawMD string, now time.Time) error
 }
 
 // Remote 是服务端交互的最小集合（*client.Client 满足其中列出的方法）。

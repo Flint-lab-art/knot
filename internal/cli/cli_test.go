@@ -169,6 +169,7 @@ type testEnv struct {
 	out    bytes.Buffer
 	errOut bytes.Buffer
 	fs     *fakeServer
+	srv    *httptest.Server
 	cfg    string
 	cache  string
 }
@@ -193,7 +194,12 @@ func newTestEnv(t *testing.T, editorScript string) *testEnv {
 	if err := os.WriteFile(cfg, []byte(content), 0o600); err != nil {
 		t.Fatalf("写配置: %v", err)
 	}
-	return &testEnv{t: t, fs: fs, cfg: cfg, cache: cache}
+	return &testEnv{t: t, fs: fs, srv: srv, cfg: cfg, cache: cache}
+}
+
+// stopServer 关闭假服务端，模拟断网。
+func (e *testEnv) stopServer() {
+	e.srv.Close()
 }
 
 // run 执行一次 CLI 命令，返回 err。
@@ -522,5 +528,68 @@ func TestListJSONOmitsVersion(t *testing.T) {
 		if _, ok := out[0][k]; !ok {
 			t.Fatalf("缺少字段 %q: %v", k, out[0])
 		}
+	}
+}
+
+// 离线时 show 必须回落本地缓存（docs/SYNC_CACHE.md：断网可读已缓存笔记）。
+func TestShowFallsBackToCacheWhenOffline(t *testing.T) {
+	e := newTestEnv(t, "")
+	e.fs.add("缓存笔记", "缓存的正文")
+	e.syncCache()
+
+	// 先在线 show 一次，把正文写进懒缓存。
+	if err := e.run("show", "缓存笔记"); err != nil {
+		t.Fatalf("在线 show: %v\n%s", err, e.errOut.String())
+	}
+
+	// 关掉服务端模拟断网。
+	e.stopServer()
+
+	if err := e.run("show", "缓存笔记"); err != nil {
+		t.Fatalf("离线 show 应回落到缓存: %v\n%s", err, e.errOut.String())
+	}
+	contains := strings.Contains(e.out.String(), "缓存的正文")
+	if !contains {
+		t.Fatalf("离线输出应含缓存正文: %q", e.out.String())
+	}
+	if !strings.Contains(e.errOut.String(), "本地缓存") {
+		t.Fatalf("应提示是缓存副本: %q", e.errOut.String())
+	}
+}
+
+// 离线且没有正文缓存时，报错要说清怎么补救。
+func TestShowOfflineWithoutContentCache(t *testing.T) {
+	e := newTestEnv(t, "")
+	e.fs.add("只有元数据", "正文没缓存")
+	e.syncCache() // sync 只拉元数据，不拉正文
+	e.stopServer()
+
+	err := e.run("show", "只有元数据")
+	if err == nil {
+		t.Fatal("无缓存正文时应报错")
+	}
+	if !strings.Contains(err.Error(), "knot show") {
+		t.Fatalf("错误信息应给出补救办法: %v", err)
+	}
+}
+
+// 4xx 是确定答案，不能用缓存掩盖（例如笔记已在服务端删除）。
+func TestShowDoesNotMaskNotFound(t *testing.T) {
+	e := newTestEnv(t, "")
+	n := e.fs.add("会消失", "正文")
+	e.syncCache()
+	if err := e.run("show", "会消失"); err != nil {
+		t.Fatalf("在线 show: %v", err)
+	}
+	e.fs.mu.Lock()
+	delete(e.fs.notes, n.ID)
+	e.fs.mu.Unlock()
+
+	err := e.run("show", "会消失")
+	if err == nil {
+		t.Fatal("服务端已删除应报错，不能回落到缓存显示旧内容")
+	}
+	if !strings.Contains(err.Error(), "删除") {
+		t.Fatalf("错误应说明已删除: %v", err)
 	}
 }

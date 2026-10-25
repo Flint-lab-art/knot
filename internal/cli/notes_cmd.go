@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -149,39 +150,123 @@ func formatListLine(n dto.Note, short bool) string {
 }
 
 // showCmd 构造 `knot show`。
+//
+// 网络优先、失败回落本地缓存：docs/SYNC_CACHE.md 要求「断网时可读已缓存笔记」。
+// 回落时明确提示是缓存副本，避免用户以为看到的是最新内容。
 func showCmd(a *app) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <selector>",
-		Short: "查看笔记（懒加载正文）",
+		Short: "查看笔记（懒加载正文，离线时读本地缓存）",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := cmd.Context()
-			note, err := a.resolveNote(ctx, args[0])
-			if err != nil {
-				return err
-			}
-			cli, err := a.Client()
-			if err != nil {
-				return err
-			}
-			detail, err := cli.GetNote(ctx, note.ID)
-			if err != nil {
-				return err
-			}
-			// 顺带刷新本地缓存，后续可离线读。
-			if db, err := a.DB(ctx); err == nil {
-				_ = db.UpsertNote(ctx, detail.Note)
-				_ = db.SaveContent(ctx, detail.ID, detail.RawMD, nowUTC())
-			}
-			_, _ = fmt.Fprintf(a.out, "# %s\n", detail.Title)
-			if len(detail.Tags) > 0 {
-				_, _ = fmt.Fprintf(a.out, "标签: %s\n", strings.Join(detail.Tags, ", "))
-			}
-			_, _ = fmt.Fprintf(a.out, "可见性: %s  版本: %d\n\n", detail.Visibility, detail.Version)
-			_, _ = fmt.Fprintln(a.out, detail.RawMD)
-			return nil
+			return runShow(cmd, a, args[0])
 		},
 	}
+}
+
+// runShow 先请求服务端；网络/服务端故障时读本地缓存并给出提示。
+func runShow(cmd *cobra.Command, a *app, selector string) error {
+	ctx := cmd.Context()
+
+	// 1) 优先走服务端，顺带刷新缓存。
+	srvErr := showFromServer(ctx, a, selector)
+	if srvErr == nil {
+		return nil
+	}
+	// 4xx（找不到、无权限等）是确定答案，不该用缓存掩盖。
+	if !isOfflineErr(srvErr) {
+		return srvErr
+	}
+
+	// 2) 连不上 → 回落本地缓存（docs/SYNC_CACHE.md：断网可读已缓存笔记）。
+	// 提示先于内容输出，否则 stdout/stderr 缓冲会让它出现在正文之后。
+	_, _ = fmt.Fprintf(a.errOut, "⚠ 连不上服务端，显示的是本地缓存（可能不是最新）\n")
+	if err := showFromCache(ctx, a, selector); err != nil {
+		return fmt.Errorf("连不上服务端（%v），本地也没有可用缓存（%v）\n"+
+			"  提示：联网后先跑 `knot sync`，再用 `knot show` 打开一次即可缓存正文", srvErr, err)
+	}
+	return nil
+}
+
+// isOfflineErr 判断错误是否属于「连不上服务端」。
+func isOfflineErr(err error) bool {
+	var ne *client.NetworkError
+	return errors.As(err, &ne)
+}
+
+// showFromServer 从服务端取正文并刷新缓存。
+func showFromServer(ctx context.Context, a *app, selector string) error {
+	note, err := a.resolveNote(ctx, selector)
+	if err != nil {
+		return err
+	}
+	cli, err := a.Client()
+	if err != nil {
+		return err
+	}
+	detail, err := cli.GetNote(ctx, note.ID)
+	if err != nil {
+		if errors.Is(err, client.ErrNotFound) {
+			return fmt.Errorf("笔记已在服务端删除（%s）", note.ID)
+		}
+		return err
+	}
+	if db, err := a.DB(ctx); err == nil {
+		_ = db.UpsertNote(ctx, detail.Note)
+		_ = db.SaveContent(ctx, detail.ID, detail.RawMD, nowUTC())
+	}
+	printNote(a, detail.Note, detail.RawMD)
+	return nil
+}
+
+// showFromCache 只用本地缓存渲染：元数据 + 正文懒缓存。
+func showFromCache(ctx context.Context, a *app, selector string) error {
+	id, ok := parseUUID(selector)
+	if !ok {
+		db, err := a.DB(ctx)
+		if err != nil {
+			return err
+		}
+		matches, err := matchNotes(ctx, db, selector)
+		if err != nil {
+			return err
+		}
+		if len(matches) == 0 {
+			return errors.New("本地没有匹配的笔记")
+		}
+		if len(matches) > 1 {
+			return ambiguous(selector, matches)
+		}
+		id = matches[0].ID
+	}
+
+	db, err := a.DB(ctx)
+	if err != nil {
+		return err
+	}
+	meta, err := db.GetNote(ctx, id)
+	if err != nil {
+		return errors.New("本地没有该笔记的元数据")
+	}
+	body, ok, err := db.LoadContent(ctx, id, nowUTC())
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("本地没有该笔记的正文缓存")
+	}
+	printNote(a, meta, body)
+	return nil
+}
+
+// printNote 统一 show 的输出格式。
+func printNote(a *app, n dto.Note, rawMD string) {
+	_, _ = fmt.Fprintf(a.out, "# %s\n", n.Title)
+	if len(n.Tags) > 0 {
+		_, _ = fmt.Fprintf(a.out, "标签: %s\n", strings.Join(n.Tags, ", "))
+	}
+	_, _ = fmt.Fprintf(a.out, "可见性: %s\n\n", n.Visibility)
+	_, _ = fmt.Fprintln(a.out, rawMD)
 }
 
 // editCmd 构造 `knot edit`，实现 docs/CLIENT.md 的编辑流程。

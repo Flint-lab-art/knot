@@ -13,15 +13,36 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/term"
 
+	"knot/internal/client"
 	"knot/internal/dto"
 	"knot/internal/model"
 )
 
-// fakeCache 是内存版本地缓存。
+// fakeCache 是内存版本地缓存（元数据 + 正文懒缓存）。
 type fakeCache struct {
-	notes []dto.Note
-	err   error
-	tag   string
+	notes    []dto.Note
+	err      error
+	tag      string
+	contents map[uuid.UUID]string
+}
+
+func (f *fakeCache) LoadContent(_ context.Context, id uuid.UUID, _ time.Time) (string, bool, error) {
+	if f.err != nil {
+		return "", false, f.err
+	}
+	body, ok := f.contents[id]
+	return body, ok, nil
+}
+
+func (f *fakeCache) SaveContent(_ context.Context, id uuid.UUID, rawMD string, _ time.Time) error {
+	if f.err != nil {
+		return f.err
+	}
+	if f.contents == nil {
+		f.contents = map[uuid.UUID]string{}
+	}
+	f.contents[id] = rawMD
+	return nil
 }
 
 func (f *fakeCache) ListNotes(_ context.Context, tag string, _ int) ([]dto.Note, error) {
@@ -48,9 +69,14 @@ func (f *fakeCache) ListNotes(_ context.Context, tag string, _ int) ([]dto.Note,
 type fakeRemote struct {
 	bodies map[uuid.UUID]string
 	err    error
+	// netErr 非 nil 时 GetNote 模拟断网（client.NetworkError）。
+	netErr error
 }
 
 func (f *fakeRemote) GetNote(_ context.Context, id uuid.UUID) (dto.NoteDetail, error) {
+	if f.netErr != nil {
+		return dto.NoteDetail{}, f.netErr
+	}
 	if f.err != nil {
 		return dto.NoteDetail{}, f.err
 	}
@@ -431,3 +457,58 @@ func TestIsTTYRejectsDevNull(t *testing.T) {
 		t.Fatal("term.IsTerminal 不应把 /dev/null 当终端")
 	}
 }
+
+// 断网时右栏回落本地正文缓存，并提示这是缓存副本。
+func TestDetailFallsBackToCacheOffline(t *testing.T) {
+	notes := []dto.Note{note(uuid.New(), "缓存笔记")}
+	cache := &fakeCache{notes: notes, contents: map[uuid.UUID]string{notes[0].ID: "缓存里的正文"}}
+	m := newTestModel(cache)
+	m.notes = notes
+
+	updated, _ := m.Update(notesMsg{notes: notes})
+	m = updated.(Model)
+
+	// 模拟断网：Remote 返回 NetworkError。
+	m.deps.Remote = &fakeRemote{netErr: &client.NetworkError{Err: errors.New("connection refused")}}
+	cmd := m.detailCmd()
+	updated, _ = m.Update(runCmd(t, cmd))
+	m = updated.(Model)
+
+	if m.body != "缓存里的正文" {
+		t.Fatalf("应回落到缓存正文，实际 %q", m.body)
+	}
+	if !m.detailCached {
+		t.Fatal("应标记正文来自缓存")
+	}
+	if !strings.Contains(m.View(), "本地缓存") {
+		t.Fatalf("界面应提示离线缓存:\n%s", m.View())
+	}
+}
+
+// 在线拉到正文后应写入缓存，供下次离线使用。
+func TestDetailSavesContentOnSuccess(t *testing.T) {
+	id := uuid.New()
+	notes := []dto.Note{note(id, "在线笔记")}
+	cache := &fakeCache{notes: notes, contents: map[uuid.UUID]string{}}
+	m := newTestModel(cache)
+	m.notes = notes
+	m.deps.Remote = &stubRemote{detail: dto.NoteDetail{Note: notes[0], RawMD: "联网正文"}}
+
+	cmd := m.detailCmd()
+	msg := runCmd(t, cmd)
+	_ = msg
+	if cache.contents[id] != "联网正文" {
+		t.Fatalf("正文未写入缓存: %v", cache.contents)
+	}
+}
+
+// stubRemote 返回固定正文。
+type stubRemote struct{ detail dto.NoteDetail }
+
+func (s *stubRemote) GetNote(context.Context, uuid.UUID) (dto.NoteDetail, error) {
+	return s.detail, nil
+}
+func (s *stubRemote) UpdateNote(context.Context, uuid.UUID, string, string, model.Visibility, int64) (dto.Note, error) {
+	return dto.Note{}, nil
+}
+func (s *stubRemote) DeleteNote(context.Context, uuid.UUID) error { return nil }

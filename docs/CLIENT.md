@@ -7,7 +7,7 @@
 | `knot tui` | 交互式 TUI 主界面 |
 | `knot new` | 新建笔记，`--title` / `--tags` / `--visibility` |
 | `knot edit [selector]` | 编辑（懒加载正文，归一化 hash 比对后提交） |
-| `knot show [selector]` | 终端预览 markdown，`--render` 渲染 |
+| `knot show [selector]` | 终端预览 markdown；离线时读本地缓存 |
 | `knot rm [selector]` | 删除，`-y` 跳过确认 |
 | `knot list` | 列出笔记，`--tag` / `--short` / `--json` |
 | `knot search` | 服务端 pg_trgm 全文检索 |
@@ -98,6 +98,23 @@ knot edit <selector>
   临时文件保留供人工合并。
 
 换句话说，409 保护的是「我正在编辑的这段时间」，而不是「我来之前」。
+
+## show 的离线行为
+
+`knot show` **网络优先、失败回落缓存**（`docs/SYNC_CACHE.md` 要求断网可读已缓存笔记）：
+
+```text
+knot show <selector>
+  1. 正常路径：GET /api/notes/:id → 刷新 note_content_cache → 输出
+  2. 连不上服务端（NetworkError）→ 读本地 note_meta + note_content_cache，
+     在 stderr 先打一行「⚠ 连不上服务端，显示的是本地缓存（可能不是最新）」
+  3. 连不上且本地没有正文缓存 → 报错并提示补救办法（先 sync，再 show 一次）
+  4. 4xx（如 404）不回落到缓存：这是服务端的确定答案，
+     不能拿旧缓存掩盖「笔记已被删除」
+```
+
+正文缓存只在 `show` / `edit` 时写入，所以**新同步的笔记在第一次 `show` 之前没有正文**，
+断网时也只能看到元数据 —— 这是两级缓存的预期行为，不是 bug。
 
 ## 删除流程
 

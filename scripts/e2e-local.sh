@@ -385,6 +385,37 @@ k sync >/dev/null
 check "重建后恢复数据" 1 "$(k list --json | python3 -c 'import json,sys;print(1 if len(json.load(sys.stdin))>=1 else 0)')"
 
 # ---------------------------------------------------------------------------
+section "8b. 离线读取（show 回落本地缓存）"
+
+# 用一篇独立的笔记验证，避免受前面编辑用例的影响
+OFFLINE_ID="$(k new "离线验证" --body "# 离线正文标记" | awk '{print $1}')"
+k show "${OFFLINE_ID}" >/dev/null 2>&1
+# 停服务模拟断网
+kill "${SERVER_PID}" 2>/dev/null; wait "${SERVER_PID}" 2>/dev/null; SERVER_PID=""
+sleep 0.5
+
+offscreen="$(k show "${OFFLINE_ID}" 2>&1)"
+contains "断网时 show 仍能显示缓存正文" "离线正文标记" "${offscreen}"
+contains "断网时提示是本地缓存" "本地缓存" "${offscreen}"
+
+code=0; k show 笔记二 >/dev/null 2>&1 || code=$?
+check "断网且无正文缓存时返回非零" 1 "${code}"
+
+check "断网时 list 仍可用（本地缓存）" 0 "$(k list >/dev/null 2>&1; echo $?)"
+
+# 重新起服务，后续用例继续
+nohup env KNOT_PG_DSN="${DB_DSN}" KNOT_LISTEN="127.0.0.1:${PORT}" KNOT_TOKEN="${TOKEN}" \
+  "${SERVER}" > "${WORK}/server2.log" 2>&1 &
+SERVER_PID=$!
+ready=0
+for _ in $(seq 1 40); do
+  curl -fsS --max-time 1 "${BASE}/healthz" >/dev/null 2>&1 && { ready=1; break; }
+  sleep 0.25
+done
+check "服务重启后 healthz 200" 1 "${ready}"
+sleep 1
+
+# ---------------------------------------------------------------------------
 section "9. 公开接口与可见性隔离"
 
 PUB_ID="$(k new "公开笔记" --tags pub --visibility public --body "# 公开正文" | awk '{print $1}')"

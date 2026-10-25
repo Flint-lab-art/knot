@@ -55,11 +55,12 @@ type Model struct {
 	search    string
 
 	// 详情
-	selected  *dto.Note
-	body      string
-	loading   bool
-	detailErr string
-	detailSeq int // 丢弃过期响应
+	selected     *dto.Note
+	body         string
+	loading      bool
+	detailErr    string
+	detailSeq    int // 丢弃过期响应
+	detailCached bool
 
 	// 标签面板
 	tags      []string
@@ -94,6 +95,8 @@ type detailMsg struct {
 	seq    int
 	detail dto.NoteDetail
 	err    error
+	// cached 表示正文来自本地缓存（离线回落），状态栏要提示。
+	cached bool
 }
 
 type syncMsg struct {
@@ -148,6 +151,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.detailErr = ""
 		m.body = msg.detail.RawMD
+		m.detailCached = msg.cached
 		note := msg.detail.Note
 		m.selected = &note
 		// 用服务端最新元数据刷新列表行。
@@ -316,6 +320,9 @@ func (m Model) View() string {
 
 	left := views.List(m.notes, m.cursor, listWidth-2, bodyHeight)
 	right := views.Detail(m.selected, m.body, m.loading, m.detailErr, m.width-listWidth-2)
+	if m.detailCached && m.detailErr == "" {
+		right = views.StyleMuted.Render("（离线：显示本地缓存正文）") + "\n" + right
+	}
 	leftBox := lipgloss.NewStyle().Width(listWidth - 1).Height(bodyHeight).
 		BorderStyle(lipgloss.NormalBorder()).BorderRight(true).Render(left)
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftBox, " "+right) + "\n" + bar
@@ -328,6 +335,9 @@ func (m Model) narrowView() string {
 		header = m.selected.Title
 	}
 	rest := views.Detail(m.selected, m.body, m.loading, m.detailErr, m.width)
+	if m.detailCached && m.detailErr == "" {
+		rest = views.StyleMuted.Render("（离线：显示本地缓存正文）") + "\n" + rest
+	}
 	return views.StyleTitle.Render(truncatePlain(header, m.width)) + "\n" + rest
 }
 
@@ -403,8 +413,10 @@ func (m *Model) detailCmd() tea.Cmd {
 	m.selected = &n
 	m.loading = true
 	m.detailErr = ""
+	m.detailCached = false
 	m.body = ""
 	deps := m.deps
+	now := m.deps.Now()
 	return func() tea.Msg {
 		if deps.Remote == nil {
 			return detailMsg{seq: seq, err: errors.New("未配置远端")}
@@ -412,7 +424,25 @@ func (m *Model) detailCmd() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
 		defer cancel()
 		detail, err := deps.Remote.GetNote(ctx, n.ID)
-		return detailMsg{seq: seq, detail: detail, err: err}
+		if err == nil {
+			// 成功拉到就缓存正文，供离线阅读（docs/SYNC_CACHE.md）。
+			if deps.Cache != nil {
+				_ = deps.Cache.SaveContent(ctx, detail.ID, detail.RawMD, now)
+			}
+			return detailMsg{seq: seq, detail: detail}
+		}
+
+		// 连不上服务端时回落本地正文缓存；4xx 是确定答案，不回落到缓存。
+		var ne *client.NetworkError
+		if !errors.As(err, &ne) || deps.Cache == nil {
+			return detailMsg{seq: seq, err: err}
+		}
+		body, ok, cacheErr := deps.Cache.LoadContent(ctx, n.ID, now)
+		if cacheErr != nil || !ok {
+			return detailMsg{seq: seq, err: err}
+		}
+		meta := n
+		return detailMsg{seq: seq, detail: dto.NoteDetail{Note: meta, RawMD: body}, cached: true}
 	}
 }
 
