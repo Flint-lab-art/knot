@@ -108,6 +108,20 @@ CREATE TABLE sync_state (
 - 服务端：`migrations/pg/*.sql`，goose 管理，`//go:embed` 进 `knot-server`，用 `knot-server migrate` 执行。
 - 本地：`migrations/sqlite/*.sql`，goose 管理，`//go:embed` 进 `knot`，CLI 启动时自动执行。
 - 迁移只加不删，回滚安全；删字段/改类型需单独评估。
+- 两端文件由 `migrations/migrations.go` 的 `embed.FS` 统一内嵌（`//go:embed` 不允许 `..`，故放在仓库根）。
+- 每个文件都写 `-- +goose Up` / `-- +goose Down`，down 只删本文件建的对象。
+
+### 已落地的迁移文件
+
+| 文件 | 内容 |
+|---|---|
+| `pg/0001_init.sql` | `tags` / `notes` / `note_tags`，`visibility` CHECK，`modified_at` / `visibility` / `note_tags(tag_id)` 索引 |
+| `pg/0002_trgm_index.sql` | `title` / `raw_md` 的 gin trigram 索引，**依赖 `pg_trgm` 扩展** |
+| `sqlite/0001_init.sql` | `note_meta` / `tag_meta` / `note_tag_meta` / `note_content_cache` / `sync_state` 及索引 |
+
+**扩展不写进迁移**：`CREATE EXTENSION` 需要超级用户，而服务以低权角色运行；0001 不依赖它，所以缺扩展时基础表照样建好，只有 0002 失败。部署时先由管理员执行 `CREATE EXTENSION IF NOT EXISTS pg_trgm;`（本地用 `make db-setup`），再跑 `knot-server migrate`。
+
+SQLite 侧 `store/sqlite.Open` 在 DSN 上挂 `_pragma=foreign_keys(1)`，**每个连接**都开外键；`journal_mode=WAL`、`busy_timeout=5000` 同处设置。测试用 `:memory:` 时固定单连接（`cache=shared`），否则各连接各自一个空库。
 
 ## 二期：change_log
 

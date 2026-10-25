@@ -4,6 +4,13 @@
 // 字段说明见 config.example.toml 与 docs/CLIENT.md。
 package config
 
+import (
+	"fmt"
+	"os"
+
+	"github.com/BurntSushi/toml"
+)
+
 // Client 是 knot CLI / TUI 的配置。
 type Client struct {
 	ServerURL string `toml:"server_url"`
@@ -39,4 +46,24 @@ func DefaultClient() Client {
 // DefaultServer 返回服务端默认配置（仅监听本机，由 Caddy 反代）。
 func DefaultServer() Server {
 	return Server{Listen: "127.0.0.1:8080"}
+}
+
+// LoadServer 读取服务端配置：默认值 → path（可为空）→ 环境变量。
+//
+// 环境变量用 KNOT_PG_DSN / KNOT_LISTEN 覆盖，便于容器或临时调试；
+// 生产环境建议只放在 config.toml（权限 600）。
+func LoadServer(path string) (Server, error) {
+	cfg := DefaultServer()
+	if path != "" {
+		if _, err := toml.DecodeFile(path, &cfg); err != nil {
+			return Server{}, fmt.Errorf("读取配置 %s: %w", path, err)
+		}
+	}
+	if v := os.Getenv("KNOT_PG_DSN"); v != "" {
+		cfg.PGDSN = v
+	}
+	if v := os.Getenv("KNOT_LISTEN"); v != "" {
+		cfg.Listen = v
+	}
+	return cfg, nil
 }

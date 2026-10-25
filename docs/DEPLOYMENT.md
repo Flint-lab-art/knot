@@ -132,7 +132,15 @@ sudo systemctl enable --now knot-server
 ./knot-server migrate -config /opt/knot/config.toml
 ```
 
-迁移文件 `//go:embed migrations/pg/*.sql`，服务器不需要装 goose。
+迁移文件 `//go:embed`（仓库根 `migrations/`，`knot-server` 只打包 `pg/`），服务器不需要装 goose。
+
+`pg_trgm` 扩展需先由管理员安装一次，否则 `0002_trgm_index.sql` 会失败（`0001` 已成功，不阻断重试）：
+
+```bash
+sudo -u postgres psql -d knot -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm'
+```
+
+本地开发一条命令搞定建库、装扩展、跑迁移：`make db-setup`（幂等，可重复执行）。
 
 ## 后续部署
 

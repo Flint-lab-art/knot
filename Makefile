@@ -52,6 +52,10 @@ hooks: ## 启用仓库内 git hooks（core.hooksPath=.githooks）
 	@chmod +x .githooks/* 2>/dev/null || true
 	@echo "✓ core.hooksPath=$$(git config core.hooksPath)（pre-commit 会执行 make check）"
 
+.PHONY: db-setup
+db-setup: ## 本地 PG 建库 + 装 pg_trgm + 跑迁移（调 scripts/db-setup.sh）
+	@bash scripts/db-setup.sh
+
 .PHONY: sqlc
 sqlc: ## 生成 sqlc 代码
 	@command -v sqlc >/dev/null 2>&1 || { echo "✗ 先执行 make tools"; exit 1; }

@@ -36,6 +36,7 @@
 | 脚本 | 作用 |
 |---|---|
 | `scripts/dev-setup.sh` | 检查 Go 版本、`go mod init`、拉运行时依赖、装构建工具、`go mod tidy` |
+| `scripts/db-setup.sh` | 本地 PG 建库 + `CREATE EXTENSION pg_trgm` + `knot-server migrate`，幂等 |
 | `scripts/web-build.sh` | 校验 node/pnpm、`pnpm install --frozen-lockfile`（无 lock 时 fallback `pnpm install`，CI 下禁止 fallback）、`pnpm run build`、校验 `dist/index.html` |
 
 ## Makefile 目标
@@ -44,6 +45,7 @@
 |---|---|
 | `setup` | 调 `dev-setup.sh`，末尾执行 `make hooks` 启用 git hooks |
 | `hooks` | `core.hooksPath=.githooks`，启用 pre-commit（`make check`） |
+| `db-setup` | 本地 PG 建库 + 装 `pg_trgm` + 跑迁移（调 `scripts/db-setup.sh`） |
 | `tools` | 只装 sqlc/goose/golangci-lint |
 | `tidy` | `go mod tidy` |
 | `sqlc` | `sqlc generate` |
@@ -76,8 +78,8 @@
 | 包 | 测试内容 |
 |---|---|
 | `internal/reconcile` | 快照 diff 纯函数，最高价值 |
-| `internal/store/sqlite` | `:memory:` SQLite，事务、级联删除 |
-| `internal/store/pg` | 本地 PG 或 testcontainers，事务、pg_trgm |
+| `internal/store/sqlite` | `:memory:` SQLite，迁移建表、外键级联、事务回滚（不需要外部服务，随 `make test` 跑） |
+| `internal/store/pg` | 本地 PG 或 testcontainers，事务、pg_trgm（需外部服务，`testing.Short()` 跳过） |
 | `internal/server/handler` | `httptest` + mock store，路由、鉴权 |
 | `web/` | Vitest：API 封装、筛选逻辑、**Markdown sanitize** |
 

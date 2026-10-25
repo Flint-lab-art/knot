@@ -23,11 +23,11 @@
 # 安装 Go 依赖与构建工具
 make setup
 
+# 本地 PG 建库 + 装 pg_trgm + 跑迁移（幂等）
+make db-setup
+
 # 构建
 make build
-
-# 准备 PG：建库、CREATE EXTENSION pg_trgm、跑迁移
-# 详见 docs/DEPLOYMENT.md
 
 # 启动后端
 make run-server

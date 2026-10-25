@@ -98,10 +98,20 @@ command = "nvim"
 # path = "/custom/path/cache.db"
 ```
 
-加载顺序：默认值 → 配置文件 → 环境变量覆盖（`KNOT_SERVER_URL`、`KNOT_TOKEN`）。
+加载顺序：默认值 → 配置文件 → 环境变量覆盖（`KNOT_SERVER_URL`、`KNOT_TOKEN`；服务端另有 `KNOT_PG_DSN`、`KNOT_LISTEN`）。
 
 - `editor.command` 加载时 `exec.LookPath` 检查，找不到明确报错。
 - **token 不进公开 dotfiles 仓库**，dotfiles 里放 `config.toml.example`。
+
+## 服务端 CLI
+
+| 子命令 / 参数 | 作用 |
+|---|---|
+| `knot-server` | 启动 HTTP 服务 |
+| `knot-server migrate` | 执行内嵌的 PG 迁移（部署/升级时先于启动运行） |
+| `-c` / `--config` | 配置文件路径；不传则只用默认值与环境变量 |
+
+配置加载顺序同客户端：默认值 → 配置文件 → 环境变量（`KNOT_PG_DSN`、`KNOT_LISTEN`）。迁移**不**在服务启动时自动执行，避免旧实例被新 schema 卡住。
 
 ## 换机迁移
 
