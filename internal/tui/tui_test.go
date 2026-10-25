@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -403,6 +404,8 @@ func TestLayoutResponsive(t *testing.T) {
 // 状态栏包含快捷键提示与同步状态。
 func TestStatusBarContent(t *testing.T) {
 	m := newTestModel(&fakeCache{})
+	// 有编辑器能力时，状态栏才应该出现「e 编辑」。
+	m.deps.Edit = func(context.Context, uuid.UUID) *exec.Cmd { return exec.Command("true") }
 	m.status = "已同步，无变更"
 	v := m.View()
 	for _, want := range []string{"已同步", "e 编辑", "s 同步", "q 退出"} {
@@ -512,3 +515,74 @@ func (s *stubRemote) UpdateNote(context.Context, uuid.UUID, string, string, mode
 	return dto.Note{}, nil
 }
 func (s *stubRemote) DeleteNote(context.Context, uuid.UUID) error { return nil }
+
+// e 键应触发外部编辑器（tea.ExecProcess），退出后重新加载。
+func TestEditKeyInvokesEditor(t *testing.T) {
+	notes := []dto.Note{note(uuid.New(), "可编辑")}
+	m := newTestModel(&fakeCache{notes: notes})
+	m.notes = notes
+	m.selected = &notes[0]
+
+	called := false
+	m.deps.Edit = func(context.Context, uuid.UUID) *exec.Cmd {
+		called = true
+		return exec.Command("true")
+	}
+
+	updated, cmd := m.Update(key("e"))
+	m = updated.(Model)
+	if !called {
+		t.Fatal("按 e 应调用 Deps.Edit")
+	}
+	if cmd == nil {
+		t.Fatal("应返回 tea.ExecProcess 命令")
+	}
+	if !strings.Contains(m.status, "编辑中") {
+		t.Fatalf("status = %q", m.status)
+	}
+}
+
+// 没有 Edit 依赖时，e 不能沉默 —— 要给提示，且状态栏不显示该快捷键。
+func TestEditKeyWithoutEditor(t *testing.T) {
+	notes := []dto.Note{note(uuid.New(), "不可编辑")}
+	m := newTestModel(&fakeCache{notes: notes})
+	m.notes = notes
+	m.selected = &notes[0]
+	m.deps.Edit = nil
+
+	updated, cmd := m.Update(key("e"))
+	m = updated.(Model)
+	if cmd != nil {
+		t.Fatal("无编辑器时不应返回命令")
+	}
+	if !strings.Contains(m.status, "不可编辑") {
+		t.Fatalf("应提示不可编辑，实际 %q", m.status)
+	}
+	if strings.Contains(m.View(), "e 编辑") {
+		t.Fatal("无编辑器时状态栏不应显示「e 编辑」")
+	}
+}
+
+// 编辑器退出后应刷新列表并给出「已保存」。
+func TestEditFinishedReloads(t *testing.T) {
+	m := newTestModel(&fakeCache{})
+	m.status = "编辑中…"
+	updated, cmd := m.Update(editMsg{})
+	m = updated.(Model)
+	if !strings.Contains(m.status, "已保存") {
+		t.Fatalf("status = %q", m.status)
+	}
+	if cmd == nil {
+		t.Fatal("应触发列表重新加载")
+	}
+}
+
+// 编辑器失败要把错误显示出来。
+func TestEditFailureSurfaced(t *testing.T) {
+	m := newTestModel(&fakeCache{})
+	updated, _ := m.Update(editMsg{err: errors.New("exit status 1")})
+	m = updated.(Model)
+	if !strings.Contains(m.status, "exit status 1") {
+		t.Fatalf("status = %q", m.status)
+	}
+}

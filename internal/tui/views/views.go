@@ -63,7 +63,10 @@ func List(notes []dto.Note, cursor, width, height int) string {
 }
 
 // Detail 渲染右栏：标题、元信息、正文（或占位提示）。
-func Detail(n *dto.Note, body string, loading bool, errMsg string, width int) string {
+//
+// canEdit 控制空正文时是否提示「按 e 编辑」——没有编辑能力时不该
+// 提示一个按了没反应的键。
+func Detail(n *dto.Note, body string, loading bool, errMsg string, width int, canEdit bool) string {
 	if errMsg != "" {
 		return StyleError.Render(errMsg)
 	}
@@ -83,7 +86,11 @@ func Detail(n *dto.Note, body string, loading bool, errMsg string, width int) st
 	case loading:
 		b.WriteString(StyleMuted.Render("加载正文…"))
 	case body == "":
-		b.WriteString(StyleEmpty.Render("（正文为空，按 e 编辑）"))
+		if canEdit {
+			b.WriteString(StyleEmpty.Render("（正文为空，按 e 编辑）"))
+		} else {
+			b.WriteString(StyleEmpty.Render("（正文为空）"))
+		}
 	default:
 		b.WriteString(body)
 	}
@@ -91,12 +98,14 @@ func Detail(n *dto.Note, body string, loading bool, errMsg string, width int) st
 }
 
 // StatusBar 渲染底部状态栏：同步状态 / 当前筛选 / 快捷键。
-func StatusBar(status, filter string, width int) string {
+//
+// keys 由调用方提供，这样「不可用的快捷键」不会被显示出来 ——
+// 显示一个按了没反应的键比不显示更糟。
+func StatusBar(status, filter, keys string, width int) string {
 	left := status
 	if filter != "" {
 		left += "  [" + filter + "]"
 	}
-	keys := "e 编辑  t 标签  / 搜索  s 同步  q 退出"
 	// 宽度不够时先牺牲快捷键提示。
 	if lipgloss.Width(left)+lipgloss.Width(keys)+2 > width {
 		return truncate(left, width)

@@ -88,26 +88,26 @@ func TestDetailStates(t *testing.T) {
 		ModifiedAt: time.Date(2026, 10, 24, 10, 0, 0, 0, time.UTC),
 		Tags:       []string{"go"},
 	}
-	if !strings.Contains(Detail(nil, "", false, "", 40), "选择左侧笔记") {
+	if !strings.Contains(Detail(nil, "", false, "", 40, true), "选择左侧笔记") {
 		t.Fatal("无选中应提示")
 	}
-	if !strings.Contains(Detail(n, "", true, "", 40), "加载正文") {
+	if !strings.Contains(Detail(n, "", true, "", 40, true), "加载正文") {
 		t.Fatal("加载态应提示")
 	}
-	if !strings.Contains(Detail(n, "", false, "", 40), "正文为空") {
+	if !strings.Contains(Detail(n, "", false, "", 40, true), "正文为空") {
 		t.Fatal("空正文应提示编辑")
 	}
-	body := Detail(n, "# 正文\n第二行", false, "", 40)
+	body := Detail(n, "# 正文\n第二行", false, "", 40, true)
 	if !strings.Contains(body, "# 正文") || !strings.Contains(body, "v3") || !strings.Contains(body, "#go") {
 		t.Fatalf("详情缺少内容:\n%s", body)
 	}
-	if !strings.Contains(Detail(n, "", false, "出错了", 40), "出错了") {
+	if !strings.Contains(Detail(n, "", false, "出错了", 40, true), "出错了") {
 		t.Fatal("错误态应显示错误信息")
 	}
 }
 
 func TestStatusBar(t *testing.T) {
-	out := StatusBar("已同步", "go", 80)
+	out := StatusBar("已同步", "go", "q 退出", 80)
 	if lipgloss.Width(out) > 80 {
 		t.Fatalf("状态栏超宽: %d", lipgloss.Width(out))
 	}
@@ -117,7 +117,7 @@ func TestStatusBar(t *testing.T) {
 		}
 	}
 	// 极窄时只保留状态文字，不溢出。
-	narrow := StatusBar("很长的同步状态信息", "", 10)
+	narrow := StatusBar("很长的同步状态信息", "", "q 退出", 10)
 	if lipgloss.Width(narrow) > 10 {
 		t.Fatalf("窄状态栏超宽: %q", narrow)
 	}

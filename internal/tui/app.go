@@ -163,6 +163,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case editMsg:
+		if msg.err != nil {
+			m.status = "编辑失败: " + msg.err.Error()
+			return m, nil
+		}
+		m.status = "已保存"
+		// 编辑器里可能改了正文，重新拉一次当前笔记并刷新列表。
+		return m, tea.Batch(m.loadNotes(), m.detailCmd())
+
 	case syncMsg:
 		m.syncing = false
 		if msg.err != nil {
@@ -220,6 +229,17 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "t":
 		m.mode = modeTagPanel
 		return m, m.loadTagsCmd()
+	case "e":
+		if m.deps.Edit == nil || m.selected == nil {
+			m.status = "当前笔记不可编辑"
+			return m, nil
+		}
+		id := m.selected.ID
+		m.status = "编辑中…（保存后回到列表）"
+		cmd := m.deps.Edit(context.Background(), id)
+		return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+			return editMsg{err: err}
+		})
 	case "s":
 		if m.syncing {
 			m.status = "同步进行中…"
@@ -306,12 +326,13 @@ func (m Model) View() string {
 
 	if m.mode == modeTagPanel {
 		panel := views.TagPanel(m.tags, m.tagLabel(), m.width-2, bodyHeight)
-		return fit(panel, m.width, bodyHeight) + "\n" + views.StatusBar("标签  ↑/↓ 选择  回车筛选  Esc 关闭", "", m.width)
+		return fit(panel, m.width, bodyHeight) + "\n" +
+			views.StatusBar("标签  ↑/↓ 选择  回车筛选  Esc 关闭", "", "", m.width)
 	}
 
-	bar := views.StatusBar(m.status, m.filterChip(), m.width)
+	bar := views.StatusBar(m.status, m.filterChip(), m.keysHint(), m.width)
 	if m.searching {
-		bar = views.StatusBar("/"+m.search+"_", "", m.width)
+		bar = views.StatusBar("/"+m.search+"_", "", "回车搜索  Esc 取消", m.width)
 	}
 
 	if m.width < narrowWidth {
@@ -319,7 +340,7 @@ func (m Model) View() string {
 	}
 
 	left := views.List(m.notes, m.cursor, listWidth-2, bodyHeight)
-	right := views.Detail(m.selected, m.body, m.loading, m.detailErr, m.width-listWidth-2)
+	right := views.Detail(m.selected, m.body, m.loading, m.detailErr, m.width-listWidth-2, m.deps.Edit != nil)
 	if m.detailCached && m.detailErr == "" {
 		right = views.StyleMuted.Render("（离线：显示本地缓存正文）") + "\n" + right
 	}
@@ -334,7 +355,7 @@ func (m Model) narrowView() string {
 	if m.selected != nil {
 		header = m.selected.Title
 	}
-	rest := views.Detail(m.selected, m.body, m.loading, m.detailErr, m.width)
+	rest := views.Detail(m.selected, m.body, m.loading, m.detailErr, m.width, m.deps.Edit != nil)
 	if m.detailCached && m.detailErr == "" {
 		rest = views.StyleMuted.Render("（离线：显示本地缓存正文）") + "\n" + rest
 	}
@@ -446,6 +467,9 @@ func (m *Model) detailCmd() tea.Cmd {
 	}
 }
 
+// editMsg 是外部编辑器退出后的结果。
+type editMsg struct{ err error }
+
 // syncCmd 触发一次全量同步。
 func (m Model) syncCmd() tea.Cmd {
 	if m.deps.Sync == nil {
@@ -491,6 +515,18 @@ func (m Model) filterChip() string {
 }
 
 func (m Model) tagLabel() string { return m.filter }
+
+// keysHint 生成底部快捷键提示。
+//
+// 只列出**当前真的可用**的键：编辑能力由 Deps.Edit 决定，
+// 没有编辑器时不显示「e 编辑」，避免按了没反应。
+func (m Model) keysHint() string {
+	keys := "t 标签  / 搜索  s 同步  q 退出"
+	if m.deps.Edit != nil {
+		keys = "e 编辑  " + keys
+	}
+	return keys
+}
 
 // fit 裁剪/补齐到指定宽高，避免布局抖动。
 func fit(s string, width, height int) string {

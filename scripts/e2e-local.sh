@@ -485,6 +485,11 @@ out="$("${KNOT}" tui 2>&1 </dev/null)"; code=$?
 check "非 TTY 下 knot tui 返回非零" 1 "${code}"
 contains "提示需要交互式终端" "交互式终端" "${out}"
 
+out="$("${KNOT}" 2>&1 </dev/null)"; code=$?
+check "不带子命令时也进 TUI（非 TTY 报错）" 1 "${code}"
+contains "无子命令提示需要终端而非打印帮助" "交互式终端" "${out}"
+absent "无子命令不打印帮助" "Available Commands" "${out}"
+
 # ---------------------------------------------------------------------------
 section "13. 备份与恢复"
 

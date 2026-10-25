@@ -240,6 +240,8 @@ sed -i 's|command = "nvim"|command = "false"|' ~/.config/knot/config.toml
 ## 2. TUI（20 分钟）
 
 ```sh
+./bin/knot          # 不带子命令直接进 TUI
+# 等价于：
 ./bin/knot tui
 ```
 
@@ -282,7 +284,20 @@ sed -i 's|command = "nvim"|command = "false"|' ~/.config/knot/config.toml
 - [ ] 列表里出现「外部新增」
 - [ ] 同步进行中连按 `s` → 只显示「同步进行中…」，不会重复发起
 
-### 2.6 异常与退出
+### 2.6 编辑（e 键）
+
+- [ ] 选中一篇笔记，按 `e` → TUI 界面消失，进入你的编辑器（`[editor].command`）
+- [ ] 编辑器里能看到这篇笔记的**当前正文**
+- [ ] 加一行字，保存退出 → 回到 TUI，状态栏显示「已保存」
+- [ ] 右栏正文已经是修改后的内容
+- [ ] 再按一次 `e`，什么都别改直接退出 → 显示「已保存」（无实际变化）
+- [ ] `./bin/knot show <这篇>` → 服务端确实有新内容
+- [ ] 把 `[editor].command` 改成一个会失败的命令，按 `e` → 状态栏显示「编辑失败」
+
+> 如果按 `e` 状态栏显示「当前笔记不可编辑」，说明编辑器没配好，检查
+> `~/.config/knot/config.toml` 的 `[editor].command`。
+
+### 2.7 异常与退出
 
 - [ ] 服务端停掉（终端 A 里 Ctrl+C），按 `s` → 状态栏显示同步失败，TUI 不崩
 - [ ] 把服务端重新起来，再按 `s` → 恢复

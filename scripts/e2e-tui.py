@@ -132,8 +132,11 @@ def main():
         first = tui.screen()
 
         # 首次渲染
-        check("TUI 启动并渲染出列表", "笔记" in first or "没有笔记" in first,
+        # 只断言「渲染出了框架」而不是具体笔记标题：脚本要在任意数据集上能跑。
+        check("TUI 启动并渲染出列表框架",
+              "q 退出" in first and ("│" in first or "没有笔记" in first),
               repr(first[-200:]))
+        check("列表区与详情区都已绘制", "│" in first)
         check("渲染出状态栏与快捷键", "q 退出" in first and "s 同步" in first)
         check("同步状态出现在状态栏", "已同步" in first or "同步中" in first)
 

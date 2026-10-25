@@ -4,7 +4,8 @@
 
 | 子命令 | 作用 |
 |---|---|
-| `knot tui` | 交互式 TUI 主界面 |
+| `knot`（不带子命令） | **直接进入 TUI**——TUI 是主力入口 |
+| `knot tui` | 同上（显式写法，脚本里可用） |
 | `knot new` | 新建笔记，`--title` / `--tags` / `--visibility` |
 | `knot edit [selector]` | 编辑（懒加载正文，归一化 hash 比对后提交） |
 | `knot show [selector]` | 终端预览 markdown；离线时读本地缓存 |
@@ -56,8 +57,12 @@ MVP 用 `github.com/ktr0731/go-fuzzyfinder`，单二进制无外部依赖；二�
 - 快捷键：`j/k` 或 `↑/↓` 移动、`g/G` 首尾、`/` 搜索（本地标题子串，回车生效）、
   `t` 标签面板（`↑/↓` + 回车筛选）、`Esc` 清除筛选/关闭面板、`s` 同步、`q` 退出。
 - 全文检索走服务端 `knot search`；TUI 内搜索刻意只查本地，避免每敲一个字打一次 API。
-- **编辑不在 TUI 内进行**：Bubble Tea 占着终端原始模式，起外部编辑器必须暂时移交终端。
-  目前用 `knot edit` 完成编辑；TUI 内 `e` 入口留到二期（需要 suspend/restore 终端）。
+- **编辑**：选中笔记按 `e`，TUI 通过 `tea.ExecProcess` 把终端交给外部编辑器
+  （`[editor].command`），退出后回到列表并显示「已保存」。底层起的是
+  `knot edit <id>` 子进程，与命令行编辑**共用同一套逻辑**（拉正文 → 临时文件 →
+  归一化 → PUT 带 base_version），所以冲突处理、临时文件保留等行为完全一致。
+- 没有配置编辑器（`Deps.Edit` 为空）时，`e` 会提示「当前笔记不可编辑」，
+  且状态栏与空正文提示都**不显示** `e 编辑` —— 不显示一个按了没反应的键。
 - 正文里显示的是原始 Markdown（不做 glamour 渲染），保证与编辑内容一致。
 
 ## 编辑与懒加载流程

@@ -6,6 +6,7 @@ package tui
 
 import (
 	"context"
+	"os/exec"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +23,10 @@ type Deps struct {
 	Remote Remote
 	// Sync 触发一次全量同步；由调用方实现（它同时掌握 client 与缓存）。
 	Sync func(ctx context.Context) (SyncResult, error)
+	// Edit 在外部编辑器里编辑一篇笔记，返回 *exec.Cmd 由 Bubble Tea 的
+	// tea.ExecProcess 接管终端（挂起界面 → 跑编辑器 → 恢复界面）。
+	// 为 nil 时不注册 e 键，状态栏也不显示该提示。
+	Edit func(ctx context.Context, id uuid.UUID) *exec.Cmd
 	// Now 可注入时钟（测试用），为 nil 时用 time.Now。
 	Now func() time.Time
 }
