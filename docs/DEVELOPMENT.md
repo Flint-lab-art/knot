@@ -37,7 +37,23 @@
 |---|---|
 | `scripts/dev-setup.sh` | 检查 Go 版本、`go mod init`、拉运行时依赖、装构建工具、`go mod tidy` |
 | `scripts/db-setup.sh` | 本地 PG 建库 + `CREATE EXTENSION pg_trgm` + `knot-server migrate`，幂等 |
+| `scripts/sqlc-schema.sh` | 把 `migrations/pg/*.sql` 的 Up 段落拼成 sqlc 用的 `internal/store/pg/sqlcgen/schema.sql`；`--check` 只校验是否最新 |
 | `scripts/web-build.sh` | 校验 node/pnpm、`pnpm install --frozen-lockfile`（无 lock 时 fallback `pnpm install`，CI 下禁止 fallback）、`pnpm run build`、校验 `dist/index.html` |
+
+### sqlc 与迁移的 schema 同步
+
+sqlc 的 schema 解析器处理不了 goose 的 `-- +goose Up/Down` 混排，因此 `sqlc.yaml` 指向
+`internal/store/pg/sqlcgen/schema.sql` —— 一份由 `scripts/sqlc-schema.sh` 从迁移自动拼接的
+纯 DDL 副本。**该文件禁止手改**：
+
+```sh
+make sqlc-schema        # 改完 migrations/pg/*.sql 后重新生成
+make sqlc               # 先同步 schema，再 sqlc generate
+make sqlc-check-schema  # 只校验副本是否过期（pre-commit 在迁移变更时自动跑）
+```
+
+改迁移却忘了重跑会让 store 代码与真实表结构漂移，所以 pre-commit 在检测到
+`migrations/pg/` 有暂存改动时会拒绝提交过期副本。
 
 ## Makefile 目标
 
@@ -48,7 +64,9 @@
 | `db-setup` | 本地 PG 建库 + 装 `pg_trgm` + 跑迁移（调 `scripts/db-setup.sh`） |
 | `tools` | 只装 sqlc/goose/golangci-lint |
 | `tidy` | `go mod tidy` |
-| `sqlc` | `sqlc generate` |
+| `sqlc` | 先同步 schema 副本，再 `sqlc generate` |
+| `sqlc-schema` | 由迁移生成 `sqlcgen/schema.sql` |
+| `sqlc-check-schema` | 校验 schema 副本与迁移一致（pre-commit 用） |
 | `run-server` | `go run ./cmd/knot-server` |
 | `run` | `go run ./cmd/knot tui` |
 | `web-dev` | `cd web && pnpm run dev` |
@@ -82,6 +100,22 @@
 | `internal/store/pg` | 本地 PG 或 testcontainers，事务、pg_trgm（需外部服务，`testing.Short()` 跳过） |
 | `internal/server/handler` | `httptest` + mock store，路由、鉴权 |
 | `web/` | Vitest：API 封装、筛选逻辑、**Markdown sanitize** |
+
+### PG 集成测试
+
+`internal/store/pg/store_integration_test.go` 带 `integration` build tag 且需要 `KNOT_TEST_PG_DSN`，
+两者缺一就跳过，所以 `make test` / `make check` 不依赖 PG：
+
+```sh
+KNOT_TEST_PG_DSN='postgres://postgres@/postgres?host=/run/postgresql&sslmode=disable' \
+  go test -tags=integration -count=1 ./internal/store/pg/
+```
+
+- DSN 必须是能 `CREATE SCHEMA` 的管理库；每个用例建独立的 `knot_test_<random>` schema，
+  结束时 `DROP SCHEMA ... CASCADE`，不会碰业务库。
+- 用例会在临时 schema 里装 `pg_trgm`（0002 依赖）；用无权限角色跑时请先由管理员把扩展装到库里。
+- 覆盖：全部迁移 up → down → up、CHECK/唯一约束、两级级联删除、`base_version` 409、
+  公开接口可见性过滤、游标翻页、标签重命名/解绑、快照不含正文。
 
 ## 提交前
 

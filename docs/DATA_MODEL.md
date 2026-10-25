@@ -7,8 +7,7 @@
 ```sql
 CREATE TABLE tags (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL UNIQUE,
-    created_at TIMESTAMPTZ DEFAULT now()
+    name TEXT NOT NULL UNIQUE
 );
 
 CREATE TABLE notes (
@@ -117,7 +116,24 @@ CREATE TABLE sync_state (
 |---|---|
 | `pg/0001_init.sql` | `tags` / `notes` / `note_tags`，`visibility` CHECK，`modified_at` / `visibility` / `note_tags(tag_id)` 索引 |
 | `pg/0002_trgm_index.sql` | `title` / `raw_md` 的 gin trigram 索引，**依赖 `pg_trgm` 扩展** |
+| `pg/0003_drop_tag_created_at.sql` | 去掉 `tags.created_at`（没有读方，快照与公开接口的 Tag 只有 `id/name`） |
 | `sqlite/0001_init.sql` | `note_meta` / `tag_meta` / `note_tag_meta` / `note_content_cache` / `sync_state` 及索引 |
+
+### 列表排序：不用 `sort_ord`
+
+`docs/API.md` 规定按 `modified_at` 倒序 + `limit/offset`。`offset` 在翻页期间有写入时会重复/漏读，
+所以列表接口改用**游标分页**：`WHERE (modified_at, id) < (:cursor_modified_at, :cursor_id)`
+配合 `ORDER BY modified_at DESC, id DESC`（`id` 兜底保证同一时刻的多条记录顺序稳定）。
+搜索接口因为要按标签/关键词过滤且 Web 需要页码，保留 `offset`。
+
+因此不引入 `sort_ord` 列：排序键完全由 `modified_at` + `id` 决定，少一列就少一处同步点。
+`modified_at` 由 `PUT` 的 `modified_at = now()` 维护；新建时由默认值填充。
+
+### 快照的读取方式
+
+`store/pg` 的 `Snapshot` 在**一个只读事务**里按 `id` 分页读元数据（每批 500 行），
+再一次性读「笔记 id → 标签名」映射和标签列表，避免 N+1，也不在事务里切连接。
+投影里没有 `raw_md`；`SnapshotNote` 的字段集合就是契约，集成测试会断言它没多出字段。
 
 **扩展不写进迁移**：`CREATE EXTENSION` 需要超级用户，而服务以低权角色运行；0001 不依赖它，所以缺扩展时基础表照样建好，只有 0002 失败。部署时先由管理员执行 `CREATE EXTENSION IF NOT EXISTS pg_trgm;`（本地用 `make db-setup`），再跑 `knot-server migrate`。
 
