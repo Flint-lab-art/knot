@@ -118,11 +118,11 @@ func (s *Store) withTx(ctx context.Context, fn func(q *sqlcgen.Queries) error) e
 // CreateNote 新建笔记，笔记与标签在同一事务里写入。
 //
 // tags 里的空串会被忽略；重复标签去重。返回的 Note 带服务端生成的时间与版本。
-func (s *Store) CreateNote(ctx context.Context, title, rawMD string, tags []string, vis model.Visibility) (sqlcgen.Note, error) {
+func (s *Store) CreateNote(ctx context.Context, title, rawMD string, tags []string, vis model.Visibility) (Note, error) {
 	if !vis.Valid() {
-		return sqlcgen.Note{}, fmt.Errorf("pg: 非法 visibility %q", vis)
+		return Note{}, fmt.Errorf("pg: 非法 visibility %q", vis)
 	}
-	var note sqlcgen.Note
+	var note Note
 	err := s.withTx(ctx, func(q *sqlcgen.Queries) error {
 		created, err := q.CreateNote(ctx, sqlcgen.CreateNoteParams{
 			Title:      title,
@@ -140,28 +140,34 @@ func (s *Store) CreateNote(ctx context.Context, title, rawMD string, tags []stri
 				return fmt.Errorf("pg: 绑定标签 %q: %w", name, err)
 			}
 		}
-		note = created
+		note = toNote(created)
 		return nil
 	})
 	return note, err
 }
 
 // GetNote 取完整笔记（含正文），私有接口用。
-func (s *Store) GetNote(ctx context.Context, id uuid.UUID) (sqlcgen.Note, error) {
+func (s *Store) GetNote(ctx context.Context, id uuid.UUID) (Note, error) {
 	note, err := s.queries.GetNote(ctx, id)
-	return note, notFoundAs(err, "pg: 读取笔记")
+	if err != nil {
+		return Note{}, notFoundAs(err, "pg: 读取笔记")
+	}
+	return toNote(note), nil
 }
 
 // GetPublicNote 取公开笔记，非 public 与不存在同样返回 ErrNotFound。
-func (s *Store) GetPublicNote(ctx context.Context, id uuid.UUID) (sqlcgen.Note, error) {
+func (s *Store) GetPublicNote(ctx context.Context, id uuid.UUID) (Note, error) {
 	note, err := s.queries.GetPublicNote(ctx, id)
-	return note, notFoundAs(err, "pg: 读取公开笔记")
+	if err != nil {
+		return Note{}, notFoundAs(err, "pg: 读取公开笔记")
+	}
+	return toNote(note), nil
 }
 
 // UpdateNote 乐观锁更新：base_version 不匹配返回 ErrConflict，笔记不存在返回 ErrNotFound。
-func (s *Store) UpdateNote(ctx context.Context, id uuid.UUID, title, rawMD string, vis model.Visibility, baseVersion int64) (sqlcgen.Note, error) {
+func (s *Store) UpdateNote(ctx context.Context, id uuid.UUID, title, rawMD string, vis model.Visibility, baseVersion int64) (Note, error) {
 	if !vis.Valid() {
-		return sqlcgen.Note{}, fmt.Errorf("pg: 非法 visibility %q", vis)
+		return Note{}, fmt.Errorf("pg: 非法 visibility %q", vis)
 	}
 	note, err := s.queries.UpdateNote(ctx, sqlcgen.UpdateNoteParams{
 		Title:       title,
@@ -171,20 +177,20 @@ func (s *Store) UpdateNote(ctx context.Context, id uuid.UUID, title, rawMD strin
 		BaseVersion: clampInt32(baseVersion),
 	})
 	if err == nil {
-		return note, nil
+		return toNote(note), nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return sqlcgen.Note{}, fmt.Errorf("pg: 更新笔记: %w", err)
+		return Note{}, fmt.Errorf("pg: 更新笔记: %w", err)
 	}
 	// 更新 0 行：要么不存在，要么版本不符。
 	var exists bool
 	if qerr := s.pool.QueryRow(ctx, checkNoteExists, id).Scan(&exists); qerr != nil {
-		return sqlcgen.Note{}, fmt.Errorf("pg: 确认笔记存在: %w", qerr)
+		return Note{}, fmt.Errorf("pg: 确认笔记存在: %w", qerr)
 	}
 	if !exists {
-		return sqlcgen.Note{}, ErrNotFound
+		return Note{}, ErrNotFound
 	}
-	return sqlcgen.Note{}, ErrConflict
+	return Note{}, ErrConflict
 }
 
 // DeleteNote 删除笔记；不存在也返回 nil（DELETE 幂等）。
@@ -228,7 +234,7 @@ func NormalizeLimit(limit int) int {
 // 带 Offset 或 Keywords/Tag 时走搜索查询（OFFSET 分页），否则走游标分页：
 // 游标比 offset 稳定，翻页期间插入新笔记不会导致重复/漏读。
 // Visibility 为空表示不限（私有接口）；公开接口必须显式传 public。
-func (s *Store) ListNotes(ctx context.Context, opt ListOptions) ([]sqlcgen.Note, error) {
+func (s *Store) ListNotes(ctx context.Context, opt ListOptions) ([]Note, error) {
 	limit := clampInt32(int64(NormalizeLimit(opt.Limit)))
 	if opt.Offset > 0 || opt.Keywords != "" || opt.Tag != "" {
 		notes, err := s.queries.SearchNotes(ctx, sqlcgen.SearchNotesParams{
@@ -238,7 +244,10 @@ func (s *Store) ListNotes(ctx context.Context, opt ListOptions) ([]sqlcgen.Note,
 			PageOffset: clampInt32(int64(opt.Offset)),
 			PageLimit:  limit,
 		})
-		return notes, wrapQuery("pg: 搜索笔记", err)
+		if err != nil {
+			return nil, fmt.Errorf("pg: 搜索笔记: %w", err)
+		}
+		return toNotes(notes), nil
 	}
 	notes, err := s.queries.ListNotes(ctx, sqlcgen.ListNotesParams{
 		Visibility:       optionalText(string(opt.Visibility)),
@@ -246,7 +255,27 @@ func (s *Store) ListNotes(ctx context.Context, opt ListOptions) ([]sqlcgen.Note,
 		CursorID:         optionalUUID(opt.CursorID),
 		PageLimit:        limit,
 	})
-	return notes, wrapQuery("pg: 列出笔记", err)
+	if err != nil {
+		return nil, fmt.Errorf("pg: 列出笔记: %w", err)
+	}
+	return toNotes(notes), nil
+}
+
+// TagsByNote 批量返回笔记的标签名，值为按名字排序的切片。
+// 没有标签的笔记不会出现在 map 里（调用方按空切片处理）。
+func (s *Store) TagsByNote(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID][]string, error) {
+	out := make(map[uuid.UUID][]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := s.queries.ListTagsForNotes(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("pg: 批量读取笔记标签: %w", err)
+	}
+	for _, r := range rows {
+		out[r.NoteID] = append(out[r.NoteID], r.Name)
+	}
+	return out, nil
 }
 
 // ---------------- 标签 ----------------
@@ -292,21 +321,21 @@ func (s *Store) UnbindTag(ctx context.Context, noteID uuid.UUID, name string) er
 }
 
 // ListTags 列出全部标签（私有接口）。
-func (s *Store) ListTags(ctx context.Context) ([]sqlcgen.Tag, error) {
+func (s *Store) ListTags(ctx context.Context) ([]Tag, error) {
 	tags, err := s.queries.ListTags(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("pg: 列出标签: %w", err)
 	}
-	return tags, nil
+	return toTags(tags), nil
 }
 
 // ListPublicTags 只列出至少关联一篇 public 笔记的标签。
-func (s *Store) ListPublicTags(ctx context.Context) ([]sqlcgen.Tag, error) {
+func (s *Store) ListPublicTags(ctx context.Context) ([]Tag, error) {
 	tags, err := s.queries.ListPublicTags(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("pg: 列出公开标签: %w", err)
 	}
-	return tags, nil
+	return toTags(tags), nil
 }
 
 // RenameTag 全局重命名标签；old 不存在返回 ErrNotFound，new 已存在返回 ErrTagExists。
@@ -358,7 +387,7 @@ type SnapshotNote struct {
 // Snapshot 是全量元数据快照，对应 GET /api/sync/snapshot。
 type Snapshot struct {
 	Notes    []SnapshotNote
-	Tags     []sqlcgen.Tag
+	Tags     []Tag
 	SyncedAt time.Time
 }
 
@@ -404,6 +433,7 @@ func (s *Store) Snapshot(ctx context.Context) (Snapshot, error) {
 		if err != nil {
 			return fmt.Errorf("pg: 读取快照标签列表: %w", err)
 		}
+		snap.Tags = toTags(tags)
 		byNote := make(map[uuid.UUID][]string, len(notes))
 		for _, b := range bindings {
 			byNote[b.NoteID] = append(byNote[b.NoteID], b.Name)
@@ -414,10 +444,60 @@ func (s *Store) Snapshot(ctx context.Context) (Snapshot, error) {
 				notes[i].Tags = []string{}
 			}
 		}
-		snap = Snapshot{Notes: notes, Tags: tags, SyncedAt: time.Now().UTC()}
+		snap.Notes = notes
+		snap.SyncedAt = time.Now().UTC()
 		return nil
 	})
 	return snap, err
+}
+
+// ---------------- 对外视图类型 ----------------
+//
+// handler 只认这些类型，不直接依赖 sqlcgen（生成代码改动不应波及 API 层）。
+
+// Note 是一篇笔记：正文与元数据一起返回。Version 用 int64 与 dto 对齐。
+type Note struct {
+	ID         uuid.UUID
+	Title      string
+	RawMD      string
+	Version    int64
+	Visibility model.Visibility
+	CreatedAt  time.Time
+	ModifiedAt time.Time
+}
+
+// Tag 是标签。
+type Tag struct {
+	ID   uuid.UUID
+	Name string
+}
+
+func toNote(n sqlcgen.Note) Note {
+	return Note{
+		ID:         n.ID,
+		Title:      n.Title,
+		RawMD:      n.RawMd,
+		Version:    int64(n.Version),
+		Visibility: model.Visibility(n.Visibility),
+		CreatedAt:  n.CreatedAt,
+		ModifiedAt: n.ModifiedAt,
+	}
+}
+
+func toNotes(ns []sqlcgen.Note) []Note {
+	out := make([]Note, len(ns))
+	for i, n := range ns {
+		out[i] = toNote(n)
+	}
+	return out
+}
+
+func toTags(ts []sqlcgen.Tag) []Tag {
+	out := make([]Tag, len(ts))
+	for i, t := range ts {
+		out[i] = Tag{ID: t.ID, Name: t.Name}
+	}
+	return out
 }
 
 // ---------------- 辅助 ----------------
@@ -429,14 +509,6 @@ func notFoundAs(err error, prefix string) error {
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
-	}
-	return fmt.Errorf("%s: %w", prefix, err)
-}
-
-// wrapQuery 给非 not-found 语义的查询错误加前缀。
-func wrapQuery(prefix string, err error) error {
-	if err == nil {
-		return nil
 	}
 	return fmt.Errorf("%s: %w", prefix, err)
 }

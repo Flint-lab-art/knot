@@ -184,6 +184,9 @@ chown knot:knot /opt/knot/config.toml
 
 不要把 token 写进 systemd `ExecStart` 参数。
 
+token 为空时服务**照常启动**（公开站点可用），但所有私有 `/api/*` 请求一律 401，
+启动日志里会有一条 warn。没有内置默认 token：默认值等于零鉴权。
+
 ## 健康检查
 
 `GET /healthz` 返回 200，只检查进程与 PG 连接，不返回版本/配置。不暴露到 Caddy 公开路由。

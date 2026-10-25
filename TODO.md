@@ -47,17 +47,17 @@
 
 ## 阶段 3：服务端 API
 
-- [ ] `internal/dto/*.go`：请求/响应结构体（对照 `docs/API.md`）
-- [ ] `internal/server/router.go`：chi 路由，私有 / 公开 / `healthz`
-- [ ] `middleware/auth.go`：Bearer Token，`crypto/subtle`
-- [ ] `middleware/ratelimit.go`：按 IP 令牌桶，公开 10/s，搜索 2/s
-- [ ] `handler/notes.go`：POST / PUT（`base_version`，409）/ DELETE（204）/ GET
-- [ ] `handler/tags.go`：列表、绑定、解绑、重命名
-- [ ] `handler/sync.go`：`GET /api/sync/snapshot`，不含 `raw_md`
-- [ ] `handler/public.go`：查询层强制 `visibility='public'`
-- [ ] `handler/health.go`
-- [ ] 测试：409 版本冲突、公开接口过滤、429 限流（`httptest` + mock store）
-- [ ] `curl` 手测：新建 → 改 → 查 → 删 → sync → 公开过滤 → 409 → 429
+- [x] `internal/dto/*.go`：请求/响应结构体（对照 `docs/API.md`；补分页、公开接口裁剪字段、标签重命名）
+- [x] `internal/server/router.go`：chi 路由，私有 / 公开 / `healthz`
+- [x] `middleware/auth.go`：Bearer Token，`crypto/subtle`
+- [x] `middleware/ratelimit.go`：按 IP 令牌桶，公开 10/s，搜索 2/s
+- [x] `handler/notes.go`：POST / PUT（`base_version`，409）/ DELETE（204）/ GET + 列表 / 搜索
+- [x] `handler/tags.go`：列表、绑定、解绑、重命名
+- [x] `handler/sync.go`：`GET /api/sync/snapshot`，不含 `raw_md`
+- [x] `handler/public.go`：查询层强制 `visibility='public'`
+- [x] `handler/health.go`（在 `internal/server/server.go`，healthz 只需进程与 PG 连接）
+- [x] 测试：409 版本冲突、公开接口过滤、429 限流（`httptest` + mock store）
+- [x] `curl` 手测：新建 → 改 → 查 → 删 → sync → 公开过滤 → 409 → 429
 
 ## 阶段 4：客户端 HTTP + 同步对账
 

@@ -237,7 +237,7 @@ func TestCreateGetUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateNote: %v", err)
 	}
-	if note.Version != 1 || note.Visibility != "private" || note.RawMd != "# 正文" {
+	if note.Version != 1 || note.Visibility != model.VisibilityPrivate || note.RawMD != "# 正文" {
 		t.Fatalf("新建结果不符: %+v", note)
 	}
 	tags, err := s.ListTagsForNote(ctx, note.ID)
@@ -332,7 +332,7 @@ func TestListAndSearch(t *testing.T) {
 		t.Fatalf("公开列表: %v", err)
 	}
 	for _, n := range pub {
-		if n.Visibility != string(model.VisibilityPublic) {
+		if n.Visibility != model.VisibilityPublic {
 			t.Fatalf("公开列表混入 %s 笔记", n.Visibility)
 		}
 	}
@@ -481,4 +481,3 @@ func TestSnapshot(t *testing.T) {
 		}
 	}
 }
-

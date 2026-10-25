@@ -191,6 +191,39 @@ func (q *Queries) ListTagsForNote(ctx context.Context, noteID uuid.UUID) ([]Tag,
 	return items, nil
 }
 
+const listTagsForNotes = `-- name: ListTagsForNotes :many
+SELECT nt.note_id, t.name FROM note_tags nt
+JOIN tags t ON t.id = nt.tag_id
+WHERE nt.note_id = ANY($1::uuid[])
+ORDER BY nt.note_id, t.name
+`
+
+type ListTagsForNotesRow struct {
+	NoteID uuid.UUID
+	Name   string
+}
+
+// 列表页一次取回多篇笔记的标签，避免 N+1。
+func (q *Queries) ListTagsForNotes(ctx context.Context, noteIds []uuid.UUID) ([]ListTagsForNotesRow, error) {
+	rows, err := q.db.Query(ctx, listTagsForNotes, noteIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTagsForNotesRow{}
+	for rows.Next() {
+		var i ListTagsForNotesRow
+		if err := rows.Scan(&i.NoteID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchNotes = `-- name: SearchNotes :many
 SELECT id, title, raw_md, version, visibility, created_at, modified_at FROM notes
 WHERE ($1::text IS NULL OR visibility = $1::text)

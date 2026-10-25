@@ -34,6 +34,8 @@ type Cache struct {
 type Server struct {
 	Listen string `toml:"listen"`
 	PGDSN  string `toml:"pg_dsn"`
+	// Token 是私有接口的 Bearer Token；为空时所有 /api/* 私有请求都被拒绝。
+	Token string `toml:"token"`
 }
 
 // DefaultClient 返回客户端默认配置。
@@ -50,7 +52,7 @@ func DefaultServer() Server {
 
 // LoadServer 读取服务端配置：默认值 → path（可为空）→ 环境变量。
 //
-// 环境变量用 KNOT_PG_DSN / KNOT_LISTEN 覆盖，便于容器或临时调试；
+// 环境变量用 KNOT_PG_DSN / KNOT_LISTEN / KNOT_TOKEN 覆盖，便于容器或临时调试；
 // 生产环境建议只放在 config.toml（权限 600）。
 func LoadServer(path string) (Server, error) {
 	cfg := DefaultServer()
@@ -64,6 +66,9 @@ func LoadServer(path string) (Server, error) {
 	}
 	if v := os.Getenv("KNOT_LISTEN"); v != "" {
 		cfg.Listen = v
+	}
+	if v := os.Getenv("KNOT_TOKEN"); v != "" {
+		cfg.Token = v
 	}
 	return cfg, nil
 }

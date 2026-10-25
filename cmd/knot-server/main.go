@@ -73,7 +73,22 @@ func serve(configPath string) error {
 	if err != nil {
 		return err
 	}
-	srv := server.New(server.Config{Addr: cfg.Listen}, nil)
+	// 没有 token 时所有私有接口都 401，但服务仍能跑起来（公开站点可用）。
+	// 这不配默认值：默认 token 等于零鉴权，必须由运维显式配置。
+	if cfg.Token == "" {
+		slog.Warn("KNOT_TOKEN / config.toml token 未配置：所有私有 /api/* 请求都会返回 401")
+	}
+	if cfg.PGDSN == "" {
+		return fmt.Errorf("未配置 pg_dsn（config.toml 或 KNOT_PG_DSN）：数据库是唯一写入口，不能省略")
+	}
+
+	store, err := pg.Open(context.Background(), cfg.PGDSN)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	srv := server.New(server.Config{Addr: cfg.Listen, Store: store, Token: cfg.Token}, store)
 
 	httpSrv := &http.Server{
 		Addr:              cfg.Listen,

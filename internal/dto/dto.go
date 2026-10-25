@@ -55,9 +55,42 @@ type Tag struct {
 	Name string    `json:"name"`
 }
 
+// RenameTagRequest 对应 PUT /api/tags/:old_name。
+type RenameTagRequest struct {
+	Name string `json:"name"`
+}
+
 // SyncSnapshot 对应 GET /api/sync/snapshot，不含 raw_md。
 type SyncSnapshot struct {
 	Notes    []Note    `json:"notes"`
 	Tags     []Tag     `json:"tags"`
 	SyncedAt time.Time `json:"synced_at"`
+}
+
+// NoteList 是分页笔记列表响应。
+//
+// NextCursor 为 null 表示没有下一页；客户端原样回传 cursor 即可。
+type NoteList struct {
+	Notes      []Note `json:"notes"`
+	NextCursor string `json:"next_cursor,omitempty"`
+}
+
+// PublicNote 是公开接口的笔记元数据：不返回 version、modified_at。
+type PublicNote struct {
+	ID        uuid.UUID `json:"id"`
+	Title     string    `json:"title"`
+	CreatedAt time.Time `json:"created_at"`
+	Tags      []string  `json:"tags"`
+}
+
+// PublicNoteDetail 是公开笔记的完整内容。
+type PublicNoteDetail struct {
+	PublicNote
+	RawMD string `json:"raw_md"`
+}
+
+// PublicNoteList 是公开接口的分页列表。
+type PublicNoteList struct {
+	Notes      []PublicNote `json:"notes"`
+	NextCursor string       `json:"next_cursor,omitempty"`
 }

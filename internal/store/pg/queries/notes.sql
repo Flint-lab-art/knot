@@ -59,6 +59,13 @@ JOIN note_tags nt ON nt.tag_id = t.id
 WHERE nt.note_id = @note_id::uuid
 ORDER BY t.name;
 
+-- name: ListTagsForNotes :many
+-- 列表页一次取回多篇笔记的标签，避免 N+1。
+SELECT nt.note_id, t.name FROM note_tags nt
+JOIN tags t ON t.id = nt.tag_id
+WHERE nt.note_id = ANY(@note_ids::uuid[])
+ORDER BY nt.note_id, t.name;
+
 -- name: BindTag :exec
 -- 标签不存在时自动新建；并发下先 INSERT ... ON CONFLICT 拿到 id。
 INSERT INTO note_tags (note_id, tag_id)

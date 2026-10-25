@@ -36,6 +36,8 @@ type Querier interface {
 	ListTags(ctx context.Context) ([]Tag, error)
 	// ---------------- 笔记 ↔ 标签 ----------------
 	ListTagsForNote(ctx context.Context, noteID uuid.UUID) ([]Tag, error)
+	// 列表页一次取回多篇笔记的标签，避免 N+1。
+	ListTagsForNotes(ctx context.Context, noteIds []uuid.UUID) ([]ListTagsForNotesRow, error)
 	RenameTag(ctx context.Context, arg RenameTagParams) (int64, error)
 	// keyword 匹配 title 或 raw_md（pg_trgm 的 ILIKE 走 gin_trgm_ops 索引）。
 	// visibility 为空表示不限，公开接口必须传 'public'。
