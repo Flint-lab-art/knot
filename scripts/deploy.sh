@@ -52,6 +52,14 @@ if [ ! -f "${work}/dist/web/index.html" ]; then
   exit 1
 fi
 
+# systemd unit 里 ReadWritePaths=/opt/knot/data 配 ProtectSystem=strict：
+# 目录不存在时 systemd 会直接拒绝启动，所以这里先保证它在。
+echo "→ 准备目录"
+mkdir -p "${APP_DIR}/data" "${APP_DIR}/backup" "${APP_DIR}/web"
+if id -u knot >/dev/null 2>&1; then
+  chown -R knot:knot "${APP_DIR}/data" "${APP_DIR}/backup" 2>/dev/null || true
+fi
+
 echo "→ 备份当前二进制"
 rollback=0
 if [ -f "${APP_DIR}/knot-server" ]; then

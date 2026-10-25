@@ -14,6 +14,96 @@
 
 Go 只监听 `127.0.0.1:8080`，Caddy 是唯一入口。
 
+## 启动服务
+
+`knot-server` 是单个静态二进制，没有外部依赖（除 PG）。配置可以从**文件**或**环境变量**来，
+环境变量优先级更高。
+
+### 配置项
+
+| 项 | 配置文件字段 | 环境变量 | 说明 |
+|---|---|---|---|
+| 监听地址 | `listen` | `KNOT_LISTEN` | 默认 `127.0.0.1:8080`，只监听本机 |
+| PG 连接 | `pg_dsn` | `KNOT_PG_DSN` | **必填**，缺失直接退出 |
+| 鉴权 token | `token` | `KNOT_TOKEN` | 缺失时服务照常起，但私有接口全 401 |
+
+### 方式一：本地调试（最常用）
+
+```sh
+# 1) 准备库（只需一次）
+psql -U postgres -d postgres -c 'CREATE DATABASE knot_dev'
+psql -U postgres -d knot_dev -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm'
+
+# 2) 跑迁移（每次升级后也要跑）
+KNOT_PG_DSN='postgres://postgres@/knot_dev?host=/run/postgresql&sslmode=disable' \
+  ./bin/knot-server-linux-amd64 migrate
+
+# 3) 前台启动（Ctrl+C 停止）
+KNOT_PG_DSN='postgres://postgres@/knot_dev?host=/run/postgresql&sslmode=disable' \
+KNOT_TOKEN='用 openssl rand -hex 32 生成的串' \
+KNOT_LISTEN=127.0.0.1:8080 \
+  ./bin/knot-server-linux-amd64
+```
+
+或者用 `go run`（不用先编译）：
+
+```sh
+make run-server
+```
+
+> `make run-server` 不传 `--config`，所以只读**环境变量**。
+> 要先 `export KNOT_PG_DSN=...` 和 `KNOT_TOKEN=...`，否则会报「未配置 pg_dsn」。
+
+### 方式二：用配置文件（接近生产）
+
+```toml
+# /path/to/config.toml，权限 600
+listen = "127.0.0.1:8080"
+pg_dsn = "postgres://knot:密码@127.0.0.1:5432/knot?sslmode=disable"
+token = "openssl rand -hex 32 的输出"
+```
+
+```sh
+./bin/knot-server-linux-amd64 --config /path/to/config.toml
+```
+
+**参数必须写双横线 `--config`**。写成单横线 `-config` 会被 cobra 解析成
+`-c onfig`，把 "onfig" 当成子命令，报 `unknown command`。
+
+### 方式三：生产 systemd
+
+```sh
+sudo cp deploy/knot-server.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now knot-server     # 开机自启 + 立即启动
+```
+
+日常操作：
+
+```sh
+sudo systemctl status knot-server      # 看状态
+sudo systemctl restart knot-server     # 重启（改配置后）
+sudo systemctl stop knot-server        # 停止
+sudo journalctl -u knot-server -f      # 跟日志
+```
+
+启动失败时先看 `journalctl -u knot-server -n 50 --no-pager`。常见原因：
+
+| 现象 | 原因 |
+|---|---|
+| `status=226/NAMESPACE` | `ReadWritePaths=/opt/knot/data` 目录不存在（`deploy.sh` 现在会建，手工部署要自己 `mkdir -p`）|
+| `未配置 pg_dsn` | `config.toml` 路径不对或字段名写错 |
+| `bind: address already in use` | 端口被占，`ss -ltnp \| grep 8080` 查 |
+| healthz 503 | PG 连不上，检查 DSN 与 PG 是否在跑 |
+
+### 启动顺序（重要）
+
+```text
+建库 + 装 pg_trgm  →  迁移  →  启动服务  →  配 Caddy
+```
+
+**迁移必须早于启动服务**。老版本二进制遇到新 schema 可能出错，所以不要把迁移放进服务启动流程。
+
 ## 服务器目录
 
 ```text
@@ -55,7 +145,9 @@ sudo systemctl reload caddy
 - `/assets/*` 加 `immutable` 长缓存，`index.html` 不缓存，发版即生效；
 - 安全头见文件顶部注释；改动需同步 `docs/SECURITY.md`。
 
-## systemd
+## systemd 安装细节
+
+启动方式见上面的「[方式三：生产 systemd](#方式三生产-systemd)」，这里只列首次安装的完整步骤。
 
 仓库里是完整 unit：`deploy/knot-server.service`（含 `ProtectSystem`、`MemoryDenyWriteExecute`
 等加固项）。
@@ -63,14 +155,11 @@ sudo systemctl reload caddy
 ```bash
 sudo cp deploy/knot-server.service /etc/systemd/system/
 sudo useradd --system --home /opt/knot --shell /usr/sbin/nologin knot
-sudo mkdir -p /opt/knot/data /opt/knot/backup
+sudo mkdir -p /opt/knot/data /opt/knot/backup    # ReadWritePaths 要求目录已存在
 sudo chown -R knot:knot /opt/knot
 sudo systemctl daemon-reload
 sudo systemctl enable --now knot-server
 ```
-
-**参数必须用双横线**：`--config`。写成单横线 `-config` 会被 cobra 解析成 `-c onfig`
-（把 "onfig" 当成子命令）。
 
 ## 首次部署
 
